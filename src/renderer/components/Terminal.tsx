@@ -28,9 +28,10 @@ interface TerminalProps {
   ptyId: string
   isActive: boolean
   theme: Theme
+  onFocus?: () => void
 }
 
-export function Terminal({ ptyId, isActive, theme }: TerminalProps) {
+export function Terminal({ ptyId, isActive, theme, onFocus }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -92,6 +93,9 @@ export function Terminal({ ptyId, isActive, theme }: TerminalProps) {
 
     // Handle copy/paste keyboard shortcuts
     terminal.attachCustomKeyEventHandler((event) => {
+      // Only handle keydown events to prevent double-firing
+      if (event.type !== 'keydown') return true
+
       // Ctrl+Shift+C for copy
       if (event.ctrlKey && event.shiftKey && event.key === 'C') {
         handleCopy(terminal)
@@ -118,9 +122,17 @@ export function Terminal({ ptyId, isActive, theme }: TerminalProps) {
     // Handle PTY output
     let firstData = true
     const cleanupData = window.electronAPI.onPtyData(ptyId, (data) => {
+      // Check if already at bottom before writing (to preserve scroll position if user scrolled up)
+      const buffer = terminal.buffer.active
+      const atBottom = buffer.viewportY >= buffer.baseY
+
       terminal.write(data)
-      // Auto-scroll to bottom on new data
-      terminal.scrollToBottom()
+
+      // Only auto-scroll if we were already at the bottom
+      if (atBottom) {
+        terminal.scrollToBottom()
+      }
+
       // Resize on first data to ensure PTY has correct dimensions
       if (firstData) {
         firstData = false
@@ -222,5 +234,5 @@ export function Terminal({ ptyId, isActive, theme }: TerminalProps) {
     }
   }, [theme])
 
-  return <div ref={containerRef} style={{ height: '100%', width: '100%' }} />
+  return <div ref={containerRef} style={{ height: '100%', width: '100%' }} onMouseDown={onFocus} />
 }

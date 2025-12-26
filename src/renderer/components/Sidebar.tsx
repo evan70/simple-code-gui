@@ -19,6 +19,7 @@ interface SidebarProps {
   projects: Project[]
   openTabs: OpenTab[]
   activeTabId: string | null
+  lastFocusedTabId: string | null
   onAddProject: () => void
   onRemoveProject: (path: string) => void
   onOpenSession: (projectPath: string, sessionId?: string, slug?: string) => void
@@ -28,15 +29,16 @@ interface SidebarProps {
   onUpdateProject: (path: string, updates: Partial<Project>) => void
 }
 
-export function Sidebar({ projects, openTabs, activeTabId, onAddProject, onRemoveProject, onOpenSession, onSwitchToTab, onOpenSettings, onOpenMakeProject, onUpdateProject }: SidebarProps) {
+export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onAddProject, onRemoveProject, onOpenSession, onSwitchToTab, onOpenSettings, onOpenMakeProject, onUpdateProject }: SidebarProps) {
   const [expandedProject, setExpandedProject] = useState<string | null>(null)
   const [sessions, setSessions] = useState<Record<string, ClaudeSession[]>>({})
   const [beadsExpanded, setBeadsExpanded] = useState(true)
 
-  // Get project path from active tab
-  const activeProjectPath = openTabs.find(t => t.id === activeTabId)?.projectPath || null
-  // Use expanded project if viewing sessions, otherwise use active tab's project
-  const beadsProjectPath = expandedProject || activeProjectPath
+  // Get project path from last focused tab (or active tab as fallback)
+  const focusedTabId = lastFocusedTabId || activeTabId
+  const focusedProjectPath = openTabs.find(t => t.id === focusedTabId)?.projectPath || null
+  // Use expanded project if viewing sessions, otherwise use focused/active tab's project
+  const beadsProjectPath = expandedProject || focusedProjectPath
 
   const handleSelectExecutable = async (e: React.MouseEvent, projectPath: string) => {
     e.stopPropagation()

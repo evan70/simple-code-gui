@@ -25,10 +25,10 @@ export function BeadsPanel({ projectPath, isExpanded, onToggle }: BeadsPanelProp
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [initializing, setInitializing] = useState(false)
 
-  const loadTasks = useCallback(async () => {
+  const loadTasks = useCallback(async (showLoading = true) => {
     if (!projectPath) return
 
-    setLoading(true)
+    if (showLoading) setLoading(true)
     setError(null)
 
     try {
@@ -73,7 +73,10 @@ export function BeadsPanel({ projectPath, isExpanded, onToggle }: BeadsPanelProp
 
   useEffect(() => {
     if (projectPath && isExpanded) {
-      loadTasks()
+      loadTasks(true)
+      // Auto-refresh every 10 seconds (silent, no loading state)
+      const interval = setInterval(() => loadTasks(false), 10000)
+      return () => clearInterval(interval)
     }
   }, [projectPath, isExpanded, loadTasks])
 
@@ -146,12 +149,16 @@ export function BeadsPanel({ projectPath, isExpanded, onToggle }: BeadsPanelProp
     return 'priority-low'
   }
 
+  const projectName = projectPath ? projectPath.split('/').pop() : null
+
   return (
     <div className="beads-panel">
       <div className="beads-header" onClick={onToggle}>
         <span className="beads-toggle">{isExpanded ? '▼' : '▶'}</span>
         <span className="beads-icon">📿</span>
-        <span className="beads-title">Beads Tasks</span>
+        <span className="beads-title">
+          Beads{projectName ? `: ${projectName}` : ''}
+        </span>
         {tasks.length > 0 && <span className="beads-count">{tasks.length}</span>}
       </div>
 
@@ -224,15 +231,13 @@ export function BeadsPanel({ projectPath, isExpanded, onToggle }: BeadsPanelProp
                           </span>
                         </div>
                       </div>
-                      {task.status !== 'closed' && (
-                        <button
-                          className="beads-task-delete"
-                          onClick={() => handleDeleteTask(task.id)}
-                          title="Delete task"
-                        >
-                          ×
-                        </button>
-                      )}
+                      <button
+                        className="beads-task-delete"
+                        onClick={() => handleDeleteTask(task.id)}
+                        title="Delete task"
+                      >
+                        ×
+                      </button>
                     </div>
                   ))
                 )}

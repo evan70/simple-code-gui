@@ -58,6 +58,8 @@ function App() {
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [makeProjectOpen, setMakeProjectOpen] = useState(false)
   const [currentTheme, setCurrentTheme] = useState<Theme>(themes[0])
+  const [viewMode, setViewMode] = useState<'tabs' | 'tiled'>('tabs')
+  const [lastFocusedTabId, setLastFocusedTabId] = useState<string | null>(null)
   const initRef = useRef(false)
 
   // Load workspace on mount and restore tabs
@@ -204,6 +206,7 @@ function App() {
         projects={projects}
         openTabs={openTabs}
         activeTabId={activeTabId}
+        lastFocusedTabId={lastFocusedTabId}
         onAddProject={handleAddProject}
         onRemoveProject={removeProject}
         onOpenSession={handleOpenSession}
@@ -215,22 +218,65 @@ function App() {
       <div className="main-content">
         {openTabs.length > 0 ? (
           <>
-            <TerminalTabs
-              tabs={openTabs}
-              activeTabId={activeTabId}
-              onSelectTab={setActiveTab}
-              onCloseTab={handleCloseTab}
-            />
-            <div className="terminal-container">
-              {openTabs.map((tab) => (
-                <div
-                  key={tab.id}
-                  className={`terminal-wrapper ${tab.id === activeTabId ? 'active' : ''}`}
-                >
-                  <Terminal ptyId={tab.id} isActive={tab.id === activeTabId} theme={currentTheme} />
-                </div>
-              ))}
+            <div className="terminal-header">
+              {viewMode === 'tabs' && (
+                <TerminalTabs
+                  tabs={openTabs}
+                  activeTabId={activeTabId}
+                  onSelectTab={setActiveTab}
+                  onCloseTab={handleCloseTab}
+                />
+              )}
+              <button
+                className="view-toggle-btn"
+                onClick={() => setViewMode(viewMode === 'tabs' ? 'tiled' : 'tabs')}
+                title={viewMode === 'tabs' ? 'Switch to tiled view' : 'Switch to tabs view'}
+              >
+                {viewMode === 'tabs' ? '⊞' : '▭'}
+              </button>
             </div>
+            {viewMode === 'tabs' ? (
+              <div className="terminal-container">
+                {openTabs.map((tab) => (
+                  <div
+                    key={tab.id}
+                    className={`terminal-wrapper ${tab.id === activeTabId ? 'active' : ''}`}
+                  >
+                    <Terminal
+                      ptyId={tab.id}
+                      isActive={tab.id === activeTabId}
+                      theme={currentTheme}
+                      onFocus={() => setLastFocusedTabId(tab.id)}
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className={`terminal-tiled terminal-tiled-${Math.min(openTabs.length, 4)}`}>
+                {openTabs.map((tab) => (
+                  <div key={tab.id} className="terminal-tile">
+                    <div className="tile-header">
+                      <span className="tile-title">{tab.title}</span>
+                      <button
+                        className="tile-close"
+                        onClick={() => handleCloseTab(tab.id)}
+                        title="Close"
+                      >
+                        ×
+                      </button>
+                    </div>
+                    <div className="tile-terminal">
+                      <Terminal
+                        ptyId={tab.id}
+                        isActive={true}
+                        theme={currentTheme}
+                        onFocus={() => setLastFocusedTabId(tab.id)}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </>
         ) : (
           <div className="empty-state">
