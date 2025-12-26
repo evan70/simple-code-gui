@@ -5,6 +5,7 @@ import { join } from 'path'
 export interface Project {
   path: string
   name: string
+  executable?: string
 }
 
 export interface OpenTab {
@@ -27,9 +28,15 @@ export interface WindowBounds {
   height: number
 }
 
+export interface Settings {
+  defaultProjectDir: string
+  theme: string
+}
+
 interface StoredData {
   workspace: Workspace
   windowBounds?: WindowBounds
+  settings?: Settings
 }
 
 export class SessionStore {
@@ -86,6 +93,15 @@ export class SessionStore {
 
   saveWindowBounds(bounds: WindowBounds): void {
     this.data.windowBounds = bounds
+    this.save()
+  }
+
+  getSettings(): Settings {
+    return this.data.settings ?? { defaultProjectDir: '', theme: 'default' }
+  }
+
+  saveSettings(settings: Settings): void {
+    this.data.settings = settings
     this.save()
   }
 }

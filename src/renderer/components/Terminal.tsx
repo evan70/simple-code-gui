@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
+import { Theme } from '../themes'
 
 // Custom paste handler for xterm
 async function handlePaste(term: XTerm, ptyId: string) {
@@ -26,9 +27,10 @@ function handleCopy(term: XTerm) {
 interface TerminalProps {
   ptyId: string
   isActive: boolean
+  theme: Theme
 }
 
-export function Terminal({ ptyId, isActive }: TerminalProps) {
+export function Terminal({ ptyId, isActive, theme }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
@@ -36,34 +38,37 @@ export function Terminal({ ptyId, isActive }: TerminalProps) {
   useEffect(() => {
     if (!containerRef.current) return
 
+    const t = theme.terminal
     const terminal = new XTerm({
       cursorBlink: true,
       fontSize: 14,
       fontFamily: 'JetBrains Mono, Menlo, Monaco, Consolas, monospace',
       scrollback: 10000,
       allowProposedApi: true,
+      cols: 120,
+      rows: 30,
       theme: {
-        background: '#1e1e1e',
-        foreground: '#d4d4d4',
-        cursor: '#d4d4d4',
-        cursorAccent: '#1e1e1e',
-        selectionBackground: '#264f78',
-        black: '#1e1e1e',
-        red: '#f14c4c',
-        green: '#23d18b',
-        yellow: '#f5f543',
-        blue: '#3b8eea',
-        magenta: '#d670d6',
-        cyan: '#29b8db',
-        white: '#d4d4d4',
-        brightBlack: '#666666',
-        brightRed: '#f14c4c',
-        brightGreen: '#23d18b',
-        brightYellow: '#f5f543',
-        brightBlue: '#3b8eea',
-        brightMagenta: '#d670d6',
-        brightCyan: '#29b8db',
-        brightWhite: '#ffffff'
+        background: t.background,
+        foreground: t.foreground,
+        cursor: t.cursor,
+        cursorAccent: t.cursorAccent,
+        selectionBackground: t.selection,
+        black: t.black,
+        red: t.red,
+        green: t.green,
+        yellow: t.yellow,
+        blue: t.blue,
+        magenta: t.magenta,
+        cyan: t.cyan,
+        white: t.white,
+        brightBlack: t.brightBlack,
+        brightRed: t.brightRed,
+        brightGreen: t.brightGreen,
+        brightYellow: t.brightYellow,
+        brightBlue: t.brightBlue,
+        brightMagenta: t.brightMagenta,
+        brightCyan: t.brightCyan,
+        brightWhite: t.brightWhite
       }
     })
 
@@ -71,10 +76,14 @@ export function Terminal({ ptyId, isActive }: TerminalProps) {
     terminal.loadAddon(fitAddon)
 
     terminal.open(containerRef.current)
-    fitAddon.fit()
 
     terminalRef.current = terminal
     fitAddonRef.current = fitAddon
+
+    // Defer fit to next frame when container has dimensions
+    requestAnimationFrame(() => {
+      fitAddon.fit()
+    })
 
     // Handle terminal input
     terminal.onData((data) => {
@@ -126,10 +135,15 @@ export function Terminal({ ptyId, isActive }: TerminalProps) {
 
     // Handle resize
     const handleResize = () => {
-      if (fitAddonRef.current) {
+      if (!fitAddonRef.current || !containerRef.current) return
+
+      const rect = containerRef.current.getBoundingClientRect()
+      // Only fit if container is visible and has dimensions
+      if (rect.width > 0 && rect.height > 0) {
         fitAddonRef.current.fit()
         const dims = fitAddonRef.current.proposeDimensions()
-        if (dims) {
+        if (dims && dims.cols > 0 && dims.rows > 0) {
+          console.log('Terminal resize:', dims.cols, 'x', dims.rows)
           window.electronAPI.resizePty(ptyId, dims.cols, dims.rows)
         }
       }
@@ -139,8 +153,9 @@ export function Terminal({ ptyId, isActive }: TerminalProps) {
     resizeObserver.observe(containerRef.current)
 
     // Initial resize - multiple attempts to ensure correct sizing
-    setTimeout(handleResize, 0)
+    requestAnimationFrame(handleResize)
     setTimeout(handleResize, 100)
+    setTimeout(handleResize, 300)
     setTimeout(handleResize, 500)
 
     return () => {
@@ -153,17 +168,59 @@ export function Terminal({ ptyId, isActive }: TerminalProps) {
 
   // Refit when tab becomes active
   useEffect(() => {
-    if (isActive && fitAddonRef.current) {
-      setTimeout(() => {
-        fitAddonRef.current?.fit()
-        const dims = fitAddonRef.current?.proposeDimensions()
-        if (dims) {
-          window.electronAPI.resizePty(ptyId, dims.cols, dims.rows)
+    if (isActive && fitAddonRef.current && containerRef.current) {
+      // Multiple fit attempts to handle visibility timing
+      const doFit = () => {
+        if (!fitAddonRef.current || !containerRef.current) return
+
+        // Ensure container has dimensions before fitting
+        const rect = containerRef.current.getBoundingClientRect()
+        if (rect.width > 0 && rect.height > 0) {
+          fitAddonRef.current.fit()
+          const dims = fitAddonRef.current.proposeDimensions()
+          if (dims && dims.cols > 0 && dims.rows > 0) {
+            window.electronAPI.resizePty(ptyId, dims.cols, dims.rows)
+          }
         }
         terminalRef.current?.focus()
-      }, 50)
+      }
+
+      requestAnimationFrame(doFit)
+      setTimeout(doFit, 50)
+      setTimeout(doFit, 150)
+      setTimeout(doFit, 300)
     }
   }, [isActive, ptyId])
+
+  // Update terminal theme when theme changes
+  useEffect(() => {
+    if (terminalRef.current) {
+      const t = theme.terminal
+      terminalRef.current.options.theme = {
+        background: t.background,
+        foreground: t.foreground,
+        cursor: t.cursor,
+        cursorAccent: t.cursorAccent,
+        selectionBackground: t.selection,
+        black: t.black,
+        red: t.red,
+        green: t.green,
+        yellow: t.yellow,
+        blue: t.blue,
+        magenta: t.magenta,
+        cyan: t.cyan,
+        white: t.white,
+        brightBlack: t.brightBlack,
+        brightRed: t.brightRed,
+        brightGreen: t.brightGreen,
+        brightYellow: t.brightYellow,
+        brightBlue: t.brightBlue,
+        brightMagenta: t.brightMagenta,
+        brightCyan: t.brightCyan,
+        brightWhite: t.brightWhite
+      }
+    }
+  }, [theme])
 
   return <div ref={containerRef} style={{ height: '100%', width: '100%' }} />
 }

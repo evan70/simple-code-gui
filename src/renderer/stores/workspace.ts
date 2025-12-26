@@ -3,6 +3,7 @@ import { create } from 'zustand'
 export interface Project {
   path: string
   name: string
+  executable?: string
 }
 
 export interface OpenTab {
@@ -21,10 +22,12 @@ interface WorkspaceState {
   setProjects: (projects: Project[]) => void
   addProject: (project: Project) => void
   removeProject: (path: string) => void
+  updateProject: (path: string, updates: Partial<Project>) => void
 
   addTab: (tab: OpenTab) => void
   removeTab: (id: string) => void
   setActiveTab: (id: string) => void
+  clearTabs: () => void
 }
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
@@ -44,6 +47,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   removeProject: (path) => {
     const { projects } = get()
     set({ projects: projects.filter((p) => p.path !== path) })
+  },
+
+  updateProject: (path, updates) => {
+    const { projects } = get()
+    set({
+      projects: projects.map((p) =>
+        p.path === path ? { ...p, ...updates } : p
+      )
+    })
   },
 
   addTab: (tab) => {
@@ -71,5 +83,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     set({ openTabs: newTabs, activeTabId: newActiveId })
   },
 
-  setActiveTab: (id) => set({ activeTabId: id })
+  setActiveTab: (id) => set({ activeTabId: id }),
+
+  clearTabs: () => set({ openTabs: [], activeTabId: null })
 }))

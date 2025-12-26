@@ -95,15 +95,24 @@ export class PtyManager {
   kill(id: string): void {
     const proc = this.processes.get(id)
     if (proc) {
-      proc.pty.kill()
+      try {
+        // Force kill with SIGKILL to ensure process dies
+        proc.pty.kill('SIGKILL')
+      } catch (e) {
+        // Process may already be dead
+      }
       this.processes.delete(id)
+      this.dataCallbacks.delete(id)
+      this.exitCallbacks.delete(id)
     }
   }
 
   killAll(): void {
+    console.log(`Killing ${this.processes.size} PTY processes`)
     for (const [id] of this.processes) {
       this.kill(id)
     }
+    this.processes.clear()
   }
 
   onData(id: string, callback: (data: string) => void): void {

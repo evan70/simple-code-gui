@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { Project } from '../stores/workspace'
 import { ProjectIcon } from './ProjectIcon'
+import { BeadsPanel } from './BeadsPanel'
 
 interface ClaudeSession {
   sessionId: string
@@ -17,15 +18,43 @@ interface OpenTab {
 interface SidebarProps {
   projects: Project[]
   openTabs: OpenTab[]
+  activeTabId: string | null
   onAddProject: () => void
   onRemoveProject: (path: string) => void
   onOpenSession: (projectPath: string, sessionId?: string, slug?: string) => void
   onSwitchToTab: (tabId: string) => void
+  onOpenSettings: () => void
+  onOpenMakeProject: () => void
+  onUpdateProject: (path: string, updates: Partial<Project>) => void
 }
 
-export function Sidebar({ projects, openTabs, onAddProject, onRemoveProject, onOpenSession, onSwitchToTab }: SidebarProps) {
+export function Sidebar({ projects, openTabs, activeTabId, onAddProject, onRemoveProject, onOpenSession, onSwitchToTab, onOpenSettings, onOpenMakeProject, onUpdateProject }: SidebarProps) {
   const [expandedProject, setExpandedProject] = useState<string | null>(null)
   const [sessions, setSessions] = useState<Record<string, ClaudeSession[]>>({})
+  const [beadsExpanded, setBeadsExpanded] = useState(true)
+
+  // Get project path from active tab
+  const activeProjectPath = openTabs.find(t => t.id === activeTabId)?.projectPath || null
+  // Use expanded project if viewing sessions, otherwise use active tab's project
+  const beadsProjectPath = expandedProject || activeProjectPath
+
+  const handleSelectExecutable = async (e: React.MouseEvent, projectPath: string) => {
+    e.stopPropagation()
+    const executable = await window.electronAPI.selectExecutable()
+    if (executable) {
+      onUpdateProject(projectPath, { executable })
+    }
+  }
+
+  const handleRunExecutable = async (e: React.MouseEvent, project: Project) => {
+    e.stopPropagation()
+    if (project.executable) {
+      const result = await window.electronAPI.runExecutable(project.executable, project.path)
+      if (!result.success) {
+        console.error('Failed to run executable:', result.error)
+      }
+    }
+  }
 
   useEffect(() => {
     const loadSessions = async () => {
@@ -121,16 +150,35 @@ export function Sidebar({ projects, openTabs, onAddProject, onRemoveProject, onO
                 <div className="project-name">{project.name}</div>
                 <div className="project-path">{project.path}</div>
               </div>
-              <button
-                className="remove-btn"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  onRemoveProject(project.path)
-                }}
-                title="Remove project"
-              >
-                ×
-              </button>
+              <div className="project-actions">
+                {project.executable ? (
+                  <button
+                    className="start-btn"
+                    onClick={(e) => handleRunExecutable(e, project)}
+                    title={`Run: ${project.executable}`}
+                  >
+                    ▶
+                  </button>
+                ) : (
+                  <button
+                    className="set-executable-btn"
+                    onClick={(e) => handleSelectExecutable(e, project.path)}
+                    title="Set executable"
+                  >
+                    ⚡
+                  </button>
+                )}
+                <button
+                  className="remove-btn"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onRemoveProject(project.path)
+                  }}
+                  title="Remove project"
+                >
+                  ×
+                </button>
+              </div>
             </div>
             {expandedProject === project.path && (
               <div className="sessions-list">
@@ -163,9 +211,22 @@ export function Sidebar({ projects, openTabs, onAddProject, onRemoveProject, onO
           </div>
         )}
       </div>
-      <button className="add-project-btn" onClick={onAddProject}>
-        + Add Project
-      </button>
+      <BeadsPanel
+        projectPath={beadsProjectPath}
+        isExpanded={beadsExpanded}
+        onToggle={() => setBeadsExpanded(!beadsExpanded)}
+      />
+      <div className="sidebar-actions">
+        <button className="sidebar-btn" onClick={onOpenMakeProject}>
+          <span className="icon">+</span> Make Project
+        </button>
+        <button className="sidebar-btn" onClick={onOpenSettings}>
+          <span className="icon">⚙</span> Settings
+        </button>
+        <button className="sidebar-btn primary" onClick={onAddProject}>
+          <span className="icon">📁</span> Add Project
+        </button>
+      </div>
     </div>
   )
 }
