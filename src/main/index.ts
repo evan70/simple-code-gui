@@ -587,8 +587,9 @@ ipcMain.handle('clipboard:readImage', async () => {
   try {
     const { clipboard } = require('electron')
     const formats = clipboard.availableFormats()
+    console.log('[Clipboard] Available formats:', formats)
 
-    // Check for text/uri-list first (Linux file copy)
+    // Check for text/uri-list (Linux file copy)
     if (formats.includes('text/uri-list')) {
       const uriBuffer = clipboard.readBuffer('text/uri-list')
       const uriList = uriBuffer.toString('utf8').trim()
@@ -600,6 +601,27 @@ ipcMain.handle('clipboard:readImage', async () => {
         if (paths.length > 0) {
           return { success: true, hasImage: true, path: paths.join(' '), isFile: true }
         }
+      }
+    }
+
+    // Check for Windows file copy via FileNameW format
+    if (isWindows && formats.some(f => f.includes('FileNameW') || f.includes('FileName'))) {
+      try {
+        // Try to read FileNameW (UTF-16) or FileName (ASCII)
+        let filePath = ''
+        if (formats.includes('FileNameW')) {
+          const buffer = clipboard.readBuffer('FileNameW')
+          filePath = buffer.toString('utf16le').replace(/\0/g, '').trim()
+        } else if (formats.includes('FileName')) {
+          const buffer = clipboard.readBuffer('FileName')
+          filePath = buffer.toString('utf8').replace(/\0/g, '').trim()
+        }
+        console.log('[Clipboard] Windows file path:', filePath)
+        if (filePath && (filePath.includes(':\\') || filePath.startsWith('\\\\'))) {
+          return { success: true, hasImage: true, path: filePath, isFile: true }
+        }
+      } catch (e) {
+        console.log('[Clipboard] Failed to read Windows file format:', e)
       }
     }
 
