@@ -48,6 +48,7 @@ jobs:
             dist-build/*.AppImage
             dist-build/*.deb
             dist-build/*.rpm
+            dist-build/*.yml
 
   build-macos:
     runs-on: macos-latest
@@ -87,6 +88,8 @@ jobs:
           path: |
             dist-build/*.dmg
             dist-build/*.zip
+            dist-build/*.yml
+            dist-build/*.blockmap
 
   build-windows:
     runs-on: windows-latest
@@ -121,6 +124,8 @@ jobs:
           path: |
             dist-build/*.exe
             dist-build/*.appx
+            dist-build/*.yml
+            dist-build/*.blockmap
 
   release:
     needs: [build-linux, build-macos, build-windows]
@@ -174,6 +179,8 @@ jobs:
             dist-build/*.zip
             dist-build/*.exe
             dist-build/*.appx
+            dist-build/*.yml
+            dist-build/*.blockmap
           body: |
             ## Installation
 
