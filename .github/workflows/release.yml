@@ -120,6 +120,7 @@ jobs:
           name: windows-builds
           path: |
             dist-build/*.exe
+            dist-build/*.appx
 
   release:
     needs: [build-linux, build-macos, build-windows]
@@ -172,12 +173,14 @@ jobs:
             dist-build/*.dmg
             dist-build/*.zip
             dist-build/*.exe
+            dist-build/*.appx
           body: |
             ## Installation
 
             ### Windows
             - **Installer**: Download `Claude-Terminal-Setup-*.exe` and run it
             - **Portable**: Download `Claude-Terminal-Portable-*.exe` (no installation required)
+            - **Windows Store**: Coming soon! (`.appx` package included for manual sideloading)
 
             ### macOS
             Download the `.dmg` file, open it, and drag Claude Terminal to your Applications folder.

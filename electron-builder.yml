@@ -40,6 +40,7 @@ win:
   target:
     - nsis
     - portable
+    - appx
   icon: resources/icon.ico
   artifactName: ${productName}-${version}-${arch}.${ext}
 
@@ -50,3 +51,13 @@ nsis:
 
 portable:
   artifactName: ${productName}-Portable-${version}.${ext}
+
+appx:
+  applicationId: ClaudeTerminal
+  displayName: Claude Terminal
+  identityName: ClaudeTerminal
+  publisher: CN=DonutsDelivery
+  publisherDisplayName: DonutsDelivery
+  languages:
+    - en-US
+  artifactName: ${productName}-Store-${version}.${ext}
