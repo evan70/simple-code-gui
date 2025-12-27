@@ -213,10 +213,12 @@ ipcMain.handle('executable:run', (_, { executable, cwd }: { executable: string; 
   }
 })
 
-// Use platform-aware shell and PATH
-const execOptions = {
-  shell: isWindows ? true : '/bin/bash',  // true uses default shell on Windows
-  env: { ...process.env, PATH: getEnhancedPath() }
+// Use platform-aware shell and PATH (dynamic to pick up portable deps)
+function getExecOptions() {
+  return {
+    shell: isWindows ? true : '/bin/bash',  // true uses default shell on Windows
+    env: { ...process.env, PATH: getEnhancedPathWithPortable() }
+  }
 }
 
 // Claude Code installation check and management
@@ -225,7 +227,7 @@ let claudeAvailable: boolean | null = null
 async function checkClaudeInstalled(): Promise<boolean> {
   if (claudeAvailable !== null) return claudeAvailable
   try {
-    await execAsync('claude --version', execOptions)
+    await execAsync('claude --version', getExecOptions())
     claudeAvailable = true
   } catch {
     claudeAvailable = false
@@ -236,7 +238,7 @@ async function checkClaudeInstalled(): Promise<boolean> {
 // Check if npm is available
 async function checkNpmInstalled(): Promise<boolean> {
   try {
-    await execAsync('npm --version', execOptions)
+    await execAsync('npm --version', getExecOptions())
     return true
   } catch {
     return false
@@ -247,7 +249,7 @@ async function checkNpmInstalled(): Promise<boolean> {
 async function checkWingetInstalled(): Promise<boolean> {
   if (!isWindows) return false
   try {
-    await execAsync('winget --version', execOptions)
+    await execAsync('winget --version', getExecOptions())
     return true
   } catch {
     return false
@@ -310,7 +312,7 @@ ipcMain.handle('claude:install', async () => {
     }
 
     // Install Claude Code globally via npm
-    await execAsync('npm install -g @anthropic-ai/claude-code', { ...execOptions, timeout: 120000 })
+    await execAsync('npm install -g @anthropic-ai/claude-code', { ...getExecOptions(), timeout: 120000 })
 
     // Verify installation
     const installed = await checkClaudeInstalled()
@@ -325,12 +327,12 @@ ipcMain.handle('claude:install', async () => {
 let beadsAvailable: boolean | null = null
 
 // Backwards compat alias
-const beadsExecOptions = execOptions
+const getBeadsExecOptions = getExecOptions
 
 async function checkBeadsInstalled(): Promise<boolean> {
   if (beadsAvailable !== null) return beadsAvailable
   try {
-    await execAsync('bd --version', beadsExecOptions)
+    await execAsync('bd --version', getBeadsExecOptions())
     beadsAvailable = true
   } catch {
     beadsAvailable = false
@@ -350,7 +352,7 @@ ipcMain.handle('beads:check', async (_, cwd: string) => {
 
 ipcMain.handle('beads:init', async (_, cwd: string) => {
   try {
-    await execAsync('bd init', { ...beadsExecOptions, cwd })
+    await execAsync('bd init', { ...getBeadsExecOptions(), cwd })
     return { success: true }
   } catch (e: any) {
     return { success: false, error: e.message }
@@ -359,7 +361,7 @@ ipcMain.handle('beads:init', async (_, cwd: string) => {
 
 ipcMain.handle('beads:ready', async (_, cwd: string) => {
   try {
-    const { stdout } = await execAsync('bd ready --json', { ...beadsExecOptions, cwd })
+    const { stdout } = await execAsync('bd ready --json', { ...getBeadsExecOptions(), cwd })
     return { success: true, tasks: JSON.parse(stdout) }
   } catch (e: any) {
     return { success: false, error: e.message }
@@ -368,7 +370,7 @@ ipcMain.handle('beads:ready', async (_, cwd: string) => {
 
 ipcMain.handle('beads:list', async (_, cwd: string) => {
   try {
-    const { stdout } = await execAsync('bd list --json', { ...beadsExecOptions, cwd })
+    const { stdout } = await execAsync('bd list --json', { ...getBeadsExecOptions(), cwd })
     return { success: true, tasks: JSON.parse(stdout) }
   } catch (e: any) {
     return { success: false, error: e.message }
@@ -377,7 +379,7 @@ ipcMain.handle('beads:list', async (_, cwd: string) => {
 
 ipcMain.handle('beads:show', async (_, { cwd, taskId }: { cwd: string; taskId: string }) => {
   try {
-    const { stdout } = await execAsync(`bd show ${taskId} --json`, { ...beadsExecOptions, cwd })
+    const { stdout } = await execAsync(`bd show ${taskId} --json`, { ...getBeadsExecOptions(), cwd })
     return { success: true, task: JSON.parse(stdout) }
   } catch (e: any) {
     return { success: false, error: e.message }
@@ -390,7 +392,7 @@ ipcMain.handle('beads:create', async (_, { cwd, title, description, priority }: 
     if (description) cmd += ` -d "${description.replace(/"/g, '\\"')}"`
     if (priority !== undefined) cmd += ` -p ${priority}`
     cmd += ' --json'
-    const { stdout } = await execAsync(cmd, { ...beadsExecOptions, cwd })
+    const { stdout } = await execAsync(cmd, { ...getBeadsExecOptions(), cwd })
     return { success: true, task: JSON.parse(stdout) }
   } catch (e: any) {
     return { success: false, error: e.message }
@@ -399,7 +401,7 @@ ipcMain.handle('beads:create', async (_, { cwd, title, description, priority }: 
 
 ipcMain.handle('beads:complete', async (_, { cwd, taskId }: { cwd: string; taskId: string }) => {
   try {
-    const { stdout } = await execAsync(`bd close ${taskId} --json`, { ...beadsExecOptions, cwd })
+    const { stdout } = await execAsync(`bd close ${taskId} --json`, { ...getBeadsExecOptions(), cwd })
     return { success: true, result: JSON.parse(stdout) }
   } catch (e: any) {
     return { success: false, error: e.message }
@@ -408,7 +410,7 @@ ipcMain.handle('beads:complete', async (_, { cwd, taskId }: { cwd: string; taskI
 
 ipcMain.handle('beads:delete', async (_, { cwd, taskId }: { cwd: string; taskId: string }) => {
   try {
-    await execAsync(`bd delete ${taskId} --force`, { ...beadsExecOptions, cwd })
+    await execAsync(`bd delete ${taskId} --force`, { ...getBeadsExecOptions(), cwd })
     return { success: true }
   } catch (e: any) {
     return { success: false, error: e.message }
@@ -417,7 +419,7 @@ ipcMain.handle('beads:delete', async (_, { cwd, taskId }: { cwd: string; taskId:
 
 ipcMain.handle('beads:start', async (_, { cwd, taskId }: { cwd: string; taskId: string }) => {
   try {
-    await execAsync(`bd update ${taskId} --status in_progress`, { ...beadsExecOptions, cwd })
+    await execAsync(`bd update ${taskId} --status in_progress`, { ...getBeadsExecOptions(), cwd })
     return { success: true }
   } catch (e: any) {
     return { success: false, error: e.message }
@@ -427,7 +429,7 @@ ipcMain.handle('beads:start', async (_, { cwd, taskId }: { cwd: string; taskId: 
 // Check if pipx is available (preferred for CLI tools)
 async function checkPipxInstalled(): Promise<boolean> {
   try {
-    await execAsync('pipx --version', execOptions)
+    await execAsync('pipx --version', getExecOptions())
     return true
   } catch {
     return false
@@ -438,12 +440,12 @@ async function checkPipxInstalled(): Promise<boolean> {
 async function checkPipInstalled(): Promise<boolean> {
   try {
     // Try pip3 first (common on Linux/macOS)
-    await execAsync('pip3 --version', execOptions)
+    await execAsync('pip3 --version', getExecOptions())
     return true
   } catch {
     try {
       // Fall back to pip
-      await execAsync('pip --version', execOptions)
+      await execAsync('pip --version', getExecOptions())
       return true
     } catch {
       return false
@@ -494,7 +496,7 @@ ipcMain.handle('beads:install', async () => {
     // Try pipx first (better for CLI tools - isolated environment)
     const hasPipx = await checkPipxInstalled()
     if (hasPipx) {
-      await execAsync('pipx install beads-cli', { ...execOptions, timeout: 120000 })
+      await execAsync('pipx install beads-cli', { ...getExecOptions(), timeout: 120000 })
       const installed = await checkBeadsInstalled()
       return { success: installed, method: 'pipx', error: installed ? undefined : 'Installation completed but bd command not found' }
     }
@@ -504,9 +506,9 @@ ipcMain.handle('beads:install', async () => {
     if (hasPip) {
       // Use --user flag for safety (no sudo required)
       try {
-        await execAsync('pip3 install --user beads-cli', { ...execOptions, timeout: 120000 })
+        await execAsync('pip3 install --user beads-cli', { ...getExecOptions(), timeout: 120000 })
       } catch {
-        await execAsync('pip install --user beads-cli', { ...execOptions, timeout: 120000 })
+        await execAsync('pip install --user beads-cli', { ...getExecOptions(), timeout: 120000 })
       }
       const installed = await checkBeadsInstalled()
       return { success: installed, method: 'pip', error: installed ? undefined : 'Installation completed but bd command not found. You may need to restart the app.' }
