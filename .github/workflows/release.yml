@@ -47,17 +47,55 @@ jobs:
             dist-build/*.deb
             dist-build/*.rpm
 
+  build-macos:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build app
+        run: npm run build
+
+      - name: Package for macOS
+        run: npm run package
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-builds
+          path: |
+            dist-build/*.dmg
+            dist-build/*.zip
+
   release:
-    needs: build-linux
+    needs: [build-linux, build-macos]
     runs-on: ubuntu-latest
     permissions:
       contents: write
 
     steps:
-      - name: Download artifacts
+      - name: Download Linux artifacts
         uses: actions/download-artifact@v4
         with:
           name: linux-builds
+          path: dist-build
+
+      - name: Download macOS artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-builds
           path: dist-build
 
       - name: Get version
@@ -68,6 +106,9 @@ jobs:
           else
             echo "version=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
           fi
+
+      - name: List artifacts
+        run: ls -la dist-build/
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
@@ -80,8 +121,15 @@ jobs:
             dist-build/*.AppImage
             dist-build/*.deb
             dist-build/*.rpm
+            dist-build/*.dmg
+            dist-build/*.zip
           body: |
             ## Installation
+
+            ### macOS
+            Download the `.dmg` file, open it, and drag Claude Terminal to your Applications folder.
+            - `arm64` = Apple Silicon (M1/M2/M3)
+            - `x64` = Intel Macs
 
             ### AppImage (Any Linux distro)
             ```bash

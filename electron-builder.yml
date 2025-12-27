@@ -27,3 +27,11 @@ deb:
 
 rpm:
   artifactName: ${productName}-${version}.${ext}
+
+mac:
+  target:
+    - dmg
+    - zip
+  category: public.app-category.developer-tools
+  icon: resources/icon.png
+  artifactName: ${productName}-${version}-${arch}.${ext}
