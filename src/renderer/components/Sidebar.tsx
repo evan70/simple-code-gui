@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef, useCallback } from 'react'
 import { Project } from '../stores/workspace'
 import { ProjectIcon } from './ProjectIcon'
 import { BeadsPanel } from './BeadsPanel'
@@ -27,12 +27,50 @@ interface SidebarProps {
   onOpenSettings: () => void
   onOpenMakeProject: () => void
   onUpdateProject: (path: string, updates: Partial<Project>) => void
+  width: number
+  collapsed: boolean
+  onWidthChange: (width: number) => void
+  onCollapsedChange: (collapsed: boolean) => void
 }
 
-export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onAddProject, onRemoveProject, onOpenSession, onSwitchToTab, onOpenSettings, onOpenMakeProject, onUpdateProject }: SidebarProps) {
+export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onAddProject, onRemoveProject, onOpenSession, onSwitchToTab, onOpenSettings, onOpenMakeProject, onUpdateProject, width, collapsed, onWidthChange, onCollapsedChange }: SidebarProps) {
   const [expandedProject, setExpandedProject] = useState<string | null>(null)
   const [sessions, setSessions] = useState<Record<string, ClaudeSession[]>>({})
   const [beadsExpanded, setBeadsExpanded] = useState(true)
+  const [isResizing, setIsResizing] = useState(false)
+  const sidebarRef = useRef<HTMLDivElement>(null)
+
+  // Resize handler
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault()
+    setIsResizing(true)
+  }, [])
+
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      if (!isResizing) return
+      const newWidth = Math.min(Math.max(e.clientX, 200), 500)
+      onWidthChange(newWidth)
+    }
+
+    const handleMouseUp = () => {
+      setIsResizing(false)
+    }
+
+    if (isResizing) {
+      document.addEventListener('mousemove', handleMouseMove)
+      document.addEventListener('mouseup', handleMouseUp)
+      document.body.style.cursor = 'ew-resize'
+      document.body.style.userSelect = 'none'
+    }
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove)
+      document.removeEventListener('mouseup', handleMouseUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+  }, [isResizing, onWidthChange])
 
   // Get project path from last focused tab (or active tab as fallback)
   const focusedTabId = lastFocusedTabId || activeTabId
@@ -130,8 +168,29 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
     }
   }
 
+  if (collapsed) {
+    return (
+      <div className="sidebar collapsed" ref={sidebarRef}>
+        <button
+          className="sidebar-collapse-btn"
+          onClick={() => onCollapsedChange(false)}
+          title="Expand sidebar"
+        >
+          ▶
+        </button>
+      </div>
+    )
+  }
+
   return (
-    <div className="sidebar">
+    <div className="sidebar" ref={sidebarRef} style={{ width }}>
+      <button
+        className="sidebar-collapse-btn"
+        onClick={() => onCollapsedChange(true)}
+        title="Collapse sidebar"
+      >
+        ◀
+      </button>
       <div className="sidebar-header">Projects</div>
       <div className="projects-list">
         {projects.map((project) => (
@@ -244,6 +303,10 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
           <span className="icon">📁</span> Add Project
         </button>
       </div>
+      <div
+        className="sidebar-resize-handle"
+        onMouseDown={handleMouseDown}
+      />
     </div>
   )
 }

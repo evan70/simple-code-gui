@@ -56,6 +56,19 @@ function createWindow() {
     }
   })
 
+  // Block external drag-drop to prevent xterm crashes
+  mainWindow.webContents.on('will-navigate', (event, url) => {
+    // Prevent navigation from dropped URLs/files
+    if (!url.startsWith('http://localhost') && !url.startsWith('file://')) {
+      event.preventDefault()
+    }
+  })
+
+  // Prevent new windows from opening when dropping content
+  mainWindow.webContents.setWindowOpenHandler(() => {
+    return { action: 'deny' }
+  })
+
   mainWindow.on('close', () => {
     if (mainWindow) {
       sessionStore.saveWindowBounds(mainWindow.getBounds())
@@ -569,24 +582,48 @@ ipcMain.handle('beads:install', async () => {
   }
 })
 
-// Clipboard image saving
-ipcMain.handle('clipboard:saveImage', async (_, { base64Data, mimeType }: { base64Data: string; mimeType: string }) => {
+// Clipboard image reading and saving (using Electron's native clipboard)
+ipcMain.handle('clipboard:readImage', async () => {
   try {
-    // Determine extension from mime type
-    let ext = 'png'
-    if (mimeType.includes('jpeg') || mimeType.includes('jpg')) ext = 'jpg'
-    else if (mimeType.includes('gif')) ext = 'gif'
-    else if (mimeType.includes('webp')) ext = 'webp'
+    const { clipboard } = require('electron')
+    const formats = clipboard.availableFormats()
 
-    // Generate unique filename
-    const filename = `clipboard-${Date.now()}.${ext}`
+    // Check for text/uri-list first (Linux file copy)
+    if (formats.includes('text/uri-list')) {
+      const uriBuffer = clipboard.readBuffer('text/uri-list')
+      const uriList = uriBuffer.toString('utf8').trim()
+      if (uriList) {
+        const paths = uriList.split('\n')
+          .map(uri => uri.trim())
+          .filter(uri => uri.startsWith('file://'))
+          .map(uri => decodeURIComponent(uri.replace('file://', '')))
+        if (paths.length > 0) {
+          return { success: true, hasImage: true, path: paths.join(' '), isFile: true }
+        }
+      }
+    }
+
+    // Try to get image from clipboard
+    const image = clipboard.readImage()
+    if (image.isEmpty()) {
+      // Check if HTML contains an img tag with src
+      const html = clipboard.readHTML()
+      if (html && html.includes('<img')) {
+        const srcMatch = html.match(/src="([^"]+)"/)
+        if (srcMatch && srcMatch[1]) {
+          return { success: true, hasImage: true, path: srcMatch[1], isUrl: true }
+        }
+      }
+      return { success: false, hasImage: false }
+    }
+
+    // Save to temp file
+    const filename = `clipboard-${Date.now()}.png`
     const filepath = join(tmpdir(), filename)
+    const pngBuffer = image.toPNG()
+    writeFileSync(filepath, pngBuffer)
 
-    // Decode base64 and write to file
-    const buffer = Buffer.from(base64Data, 'base64')
-    writeFileSync(filepath, buffer)
-
-    return { success: true, path: filepath }
+    return { success: true, hasImage: true, path: filepath }
   } catch (e: any) {
     return { success: false, error: e.message }
   }

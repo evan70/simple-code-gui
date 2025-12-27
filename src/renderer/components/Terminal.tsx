@@ -7,57 +7,29 @@ import { Theme } from '../themes'
 // Custom paste handler for xterm - supports text, file paths, and images
 async function handlePaste(term: XTerm, ptyId: string) {
   try {
-    // Try to read clipboard items for richer content
-    const clipboardItems = await navigator.clipboard.read()
-
-    for (const item of clipboardItems) {
-      // Check for image types first
-      const imageType = item.types.find(t => t.startsWith('image/'))
-      if (imageType) {
-        const blob = await item.getType(imageType)
-        const buffer = await blob.arrayBuffer()
-        const base64 = btoa(String.fromCharCode(...new Uint8Array(buffer)))
-
-        // Save image to temp file via main process
-        const result = await window.electronAPI.saveClipboardImage(base64, imageType)
-        if (result.success && result.path) {
-          window.electronAPI.writePty(ptyId, result.path)
-          return
-        }
-      }
-
-      // Check for text/plain (includes file paths from file manager)
-      if (item.types.includes('text/plain')) {
-        const blob = await item.getType('text/plain')
-        const text = await blob.text()
-
-        // Clean up file:// URIs to plain paths
-        let cleanText = text
-        if (text.startsWith('file://')) {
-          // Handle file URIs (common on Linux when copying files)
-          cleanText = text.split('\n')
-            .map(line => line.trim())
-            .filter(line => line.startsWith('file://'))
-            .map(line => decodeURIComponent(line.replace('file://', '')))
-            .join(' ')
-        }
-
-        window.electronAPI.writePty(ptyId, cleanText || text)
-        return
-      }
+    // First check if clipboard has an image or file (using Electron's native clipboard)
+    const imageResult = await window.electronAPI.readClipboardImage()
+    if (imageResult.success && imageResult.hasImage && imageResult.path) {
+      window.electronAPI.writePty(ptyId, imageResult.path)
+      return
     }
 
-    // Fallback to simple text read
+    // No image, try to read text
     const text = await navigator.clipboard.readText()
-    window.electronAPI.writePty(ptyId, text)
-  } catch (e) {
-    // Fallback for browsers that don't support clipboard.read()
-    try {
-      const text = await navigator.clipboard.readText()
-      window.electronAPI.writePty(ptyId, text)
-    } catch (e2) {
-      console.error('Failed to paste:', e2)
+    if (text) {
+      // Clean up file:// URIs to plain paths (common on Linux when copying files)
+      let cleanText = text
+      if (text.startsWith('file://')) {
+        cleanText = text.split('\n')
+          .map(line => line.trim())
+          .filter(line => line.startsWith('file://'))
+          .map(line => decodeURIComponent(line.replace('file://', '')))
+          .join(' ')
+      }
+      window.electronAPI.writePty(ptyId, cleanText || text)
     }
+  } catch (e) {
+    console.error('Paste failed:', e)
   }
 }
 
@@ -82,6 +54,7 @@ export function Terminal({ ptyId, isActive, theme, onFocus }: TerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const terminalRef = useRef<XTerm | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
+
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -143,11 +116,23 @@ export function Terminal({ ptyId, isActive, theme, onFocus }: TerminalProps) {
       // Only handle keydown events to prevent double-firing
       if (event.type !== 'keydown') return true
 
-      // Ctrl+Shift+C for copy
+      // Ctrl+Shift+C for copy (always)
       if (event.ctrlKey && event.shiftKey && event.key === 'C') {
         handleCopy(terminal)
         return false
       }
+
+      // Ctrl+C (without shift): copy if there's a selection, otherwise send SIGINT
+      if (event.ctrlKey && !event.shiftKey && (event.key === 'c' || event.key === 'C')) {
+        const selection = terminal.getSelection()
+        if (selection && selection.length > 0) {
+          handleCopy(terminal)
+          return false
+        }
+        // No selection - let it pass through as SIGINT
+        return true
+      }
+
       // Ctrl+Shift+V or Ctrl+V for paste
       if (event.ctrlKey && (event.key === 'V' || event.key === 'v')) {
         event.preventDefault()  // Prevent browser's native paste (which would cause duplicate)
@@ -164,7 +149,6 @@ export function Terminal({ ptyId, isActive, theme, onFocus }: TerminalProps) {
         return false  // Prevent xterm from also handling it (which causes scrolling)
       }
 
-      // Ctrl+C without shift should pass through to terminal
       return true
     })
 
@@ -205,6 +189,7 @@ export function Terminal({ ptyId, isActive, theme, onFocus }: TerminalProps) {
       })
     })
 
+
     // Handle PTY output
     let firstData = true
     const cleanupData = window.electronAPI.onPtyData(ptyId, (data) => {
@@ -231,34 +216,20 @@ export function Terminal({ ptyId, isActive, theme, onFocus }: TerminalProps) {
       terminal.write(`\r\n\x1b[90m[Process exited with code ${code}]\x1b[0m\r\n`)
     })
 
-    // Handle resize - preserve scroll position
+    // Handle resize - scroll to bottom to avoid jump issues
     const handleResize = () => {
       if (!fitAddonRef.current || !containerRef.current || !terminalRef.current) return
 
       const rect = containerRef.current.getBoundingClientRect()
-      // Only fit if container is visible and has dimensions
-      if (rect.width > 0 && rect.height > 0) {
-        // Save scroll position before resize
-        const buffer = terminalRef.current.buffer.active
-        const wasAtBottom = buffer.viewportY >= buffer.baseY
-        const scrollOffset = buffer.baseY - buffer.viewportY
-
+      // Only fit if container is visible and has reasonable dimensions
+      if (rect.width > 50 && rect.height > 50) {
         fitAddonRef.current.fit()
         const dims = fitAddonRef.current.proposeDimensions()
         if (dims && dims.cols > 0 && dims.rows > 0) {
-          console.log('Terminal resize:', dims.cols, 'x', dims.rows)
           window.electronAPI.resizePty(ptyId, dims.cols, dims.rows)
         }
-
-        // Restore scroll position after resize
-        if (wasAtBottom) {
-          terminalRef.current.scrollToBottom()
-        } else {
-          // Try to maintain the same relative scroll position
-          const newBuffer = terminalRef.current.buffer.active
-          const targetY = Math.max(0, newBuffer.baseY - scrollOffset)
-          terminalRef.current.scrollToLine(targetY)
-        }
+        // Always scroll to bottom on resize to avoid confusing jumps
+        terminalRef.current.scrollToBottom()
       }
     }
 
@@ -279,35 +250,20 @@ export function Terminal({ ptyId, isActive, theme, onFocus }: TerminalProps) {
     }
   }, [ptyId])
 
-  // Refit when tab becomes active - preserve scroll position
+  // Refit when tab becomes active
   useEffect(() => {
     if (isActive && fitAddonRef.current && containerRef.current && terminalRef.current) {
-      // Multiple fit attempts to handle visibility timing
       const doFit = () => {
         if (!fitAddonRef.current || !containerRef.current || !terminalRef.current) return
 
-        // Ensure container has dimensions before fitting
         const rect = containerRef.current.getBoundingClientRect()
-        if (rect.width > 0 && rect.height > 0) {
-          // Save scroll position
-          const buffer = terminalRef.current.buffer.active
-          const wasAtBottom = buffer.viewportY >= buffer.baseY
-          const scrollOffset = buffer.baseY - buffer.viewportY
-
+        if (rect.width > 50 && rect.height > 50) {
           fitAddonRef.current.fit()
           const dims = fitAddonRef.current.proposeDimensions()
           if (dims && dims.cols > 0 && dims.rows > 0) {
             window.electronAPI.resizePty(ptyId, dims.cols, dims.rows)
           }
-
-          // Restore scroll position
-          if (wasAtBottom) {
-            terminalRef.current.scrollToBottom()
-          } else {
-            const newBuffer = terminalRef.current.buffer.active
-            const targetY = Math.max(0, newBuffer.baseY - scrollOffset)
-            terminalRef.current.scrollToLine(targetY)
-          }
+          terminalRef.current.scrollToBottom()
         }
         terminalRef.current?.focus()
       }
@@ -315,7 +271,6 @@ export function Terminal({ ptyId, isActive, theme, onFocus }: TerminalProps) {
       requestAnimationFrame(doFit)
       setTimeout(doFit, 50)
       setTimeout(doFit, 150)
-      setTimeout(doFit, 300)
     }
   }, [isActive, ptyId])
 
@@ -349,5 +304,59 @@ export function Terminal({ ptyId, isActive, theme, onFocus }: TerminalProps) {
     }
   }, [theme])
 
-  return <div ref={containerRef} style={{ height: '100%', width: '100%' }} onMouseDown={onFocus} />
+  // Handle file drop from file manager only (ignore browser URLs - they crash xterm on KDE)
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+
+    const paths: string[] = []
+
+    // Try Files array first (KDE Dolphin uses this)
+    const files = e.dataTransfer?.files
+    if (files && files.length > 0) {
+      for (let i = 0; i < files.length; i++) {
+        try {
+          const filePath = window.electronAPI.getPathForFile(files[i])
+          if (filePath) {
+            paths.push(filePath)
+          }
+        } catch {
+          // getPathForFile not available
+        }
+      }
+    }
+
+    // Fallback: text/uri-list (some file managers use this)
+    if (paths.length === 0) {
+      const uriList = e.dataTransfer?.getData('text/uri-list')
+      if (uriList) {
+        uriList.split('\n')
+          .map(uri => uri.trim())
+          .filter(uri => uri.startsWith('file://'))
+          .forEach(uri => {
+            paths.push(decodeURIComponent(uri.replace('file://', '')))
+          })
+      }
+    }
+
+    if (paths.length > 0) {
+      window.electronAPI.writePty(ptyId, paths.join(' '))
+    }
+  }
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    e.dataTransfer.dropEffect = 'copy'
+  }
+
+  return (
+    <div
+      ref={containerRef}
+      style={{ height: '100%', width: '100%' }}
+      onMouseDown={onFocus}
+      onDrop={handleDrop}
+      onDragOver={handleDragOver}
+    />
+  )
 }

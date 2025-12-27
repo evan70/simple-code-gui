@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 
 export interface Settings {
   defaultProjectDir: string
@@ -62,7 +62,10 @@ export interface ElectronAPI {
   onUpdaterStatus: (callback: (data: { status: string; version?: string; progress?: number; error?: string }) => void) => () => void
 
   // Clipboard
-  saveClipboardImage: (base64Data: string, mimeType: string) => Promise<{ success: boolean; path?: string; error?: string }>
+  readClipboardImage: () => Promise<{ success: boolean; hasImage?: boolean; path?: string; error?: string }>
+
+  // File utilities
+  getPathForFile: (file: File) => string
 }
 
 const api: ElectronAPI = {
@@ -140,7 +143,10 @@ const api: ElectronAPI = {
   },
 
   // Clipboard
-  saveClipboardImage: (base64Data, mimeType) => ipcRenderer.invoke('clipboard:saveImage', { base64Data, mimeType })
+  readClipboardImage: () => ipcRenderer.invoke('clipboard:readImage'),
+
+  // File utilities
+  getPathForFile: (file: File) => webUtils.getPathForFile(file)
 }
 
 contextBridge.exposeInMainWorld('electronAPI', api)

@@ -49,7 +49,7 @@ declare global {
       installUpdate: () => void
       onUpdaterStatus: (callback: (data: { status: string; version?: string; progress?: number; error?: string }) => void) => () => void
       // Clipboard
-      saveClipboardImage: (base64Data: string, mimeType: string) => Promise<{ success: boolean; path?: string; error?: string }>
+      readClipboardImage: () => Promise<{ success: boolean; hasImage?: boolean; path?: string; error?: string }>
     }
   }
 }
@@ -88,6 +88,8 @@ function App() {
     progress?: number
     error?: string
   }>({ status: 'idle' })
+  const [sidebarWidth, setSidebarWidth] = useState(280)
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const initRef = useRef(false)
 
   // Load workspace on mount and restore tabs
@@ -331,6 +333,10 @@ function App() {
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenMakeProject={() => setMakeProjectOpen(true)}
         onUpdateProject={updateProject}
+        width={sidebarWidth}
+        collapsed={sidebarCollapsed}
+        onWidthChange={setSidebarWidth}
+        onCollapsedChange={setSidebarCollapsed}
       />
       <div className="main-content">
         {claudeInstalled === false || gitBashInstalled === false ? (
