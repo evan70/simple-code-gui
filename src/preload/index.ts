@@ -26,10 +26,12 @@ export interface ElectronAPI {
   selectExecutable: () => Promise<string | null>
   runExecutable: (executable: string, cwd: string) => Promise<{ success: boolean; error?: string }>
 
-  // Claude Code & Node.js
+  // Claude Code & Node.js & Python
   claudeCheck: () => Promise<{ installed: boolean; npmInstalled: boolean }>
   claudeInstall: () => Promise<{ success: boolean; error?: string; needsNode?: boolean }>
   nodeInstall: () => Promise<{ success: boolean; error?: string; method?: string; message?: string }>
+  pythonInstall: () => Promise<{ success: boolean; error?: string; method?: string }>
+  onInstallProgress: (callback: (data: { type: string; status: string; percent?: number }) => void) => () => void
 
   // Beads
   beadsCheck: (cwd: string) => Promise<{ installed: boolean; initialized: boolean }>
@@ -73,10 +75,16 @@ const api: ElectronAPI = {
   selectExecutable: () => ipcRenderer.invoke('executable:select'),
   runExecutable: (executable, cwd) => ipcRenderer.invoke('executable:run', { executable, cwd }),
 
-  // Claude Code & Node.js
+  // Claude Code & Node.js & Python
   claudeCheck: () => ipcRenderer.invoke('claude:check'),
   claudeInstall: () => ipcRenderer.invoke('claude:install'),
   nodeInstall: () => ipcRenderer.invoke('node:install'),
+  pythonInstall: () => ipcRenderer.invoke('python:install'),
+  onInstallProgress: (callback) => {
+    const handler = (_: any, data: { type: string; status: string; percent?: number }) => callback(data)
+    ipcRenderer.on('install:progress', handler)
+    return () => ipcRenderer.removeListener('install:progress', handler)
+  },
 
   // Beads
   beadsCheck: (cwd) => ipcRenderer.invoke('beads:check', cwd),

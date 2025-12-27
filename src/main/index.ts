@@ -8,7 +8,17 @@ const execAsync = promisify(exec)
 import { PtyManager } from './pty-manager'
 import { SessionStore } from './session-store'
 import { discoverSessions } from './session-discovery'
-import { isWindows, getDefaultShell, getEnhancedPath } from './platform'
+import { isWindows, getDefaultShell, getEnhancedPath, getEnhancedPathWithPortable, setPortableBinDirs } from './platform'
+import {
+  checkDeps,
+  getPortableBinDirs,
+  getPortableNpmPath,
+  getPortablePipPath,
+  installPortableNode,
+  installPortablePython,
+  installClaudeWithPortableNpm,
+  installBeadsWithPortablePip
+} from './portable-deps'
 
 let mainWindow: BrowserWindow | null = null
 const ptyManager = new PtyManager()
@@ -56,6 +66,11 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // Initialize portable deps PATH
+  const portableDirs = getPortableBinDirs()
+  setPortableBinDirs(portableDirs)
+  console.log('Portable bin directories:', portableDirs)
+
   createWindow()
 
   app.on('activate', () => {
@@ -246,70 +261,22 @@ ipcMain.handle('claude:check', async () => {
 })
 
 ipcMain.handle('node:install', async () => {
-  const { shell } = await import('electron')
-
   try {
-    if (isWindows) {
-      // Try winget first (cleanest method, built into Windows 10/11)
-      const hasWinget = await checkWingetInstalled()
-      if (hasWinget) {
-        await execAsync('winget install OpenJS.NodeJS.LTS --accept-source-agreements --accept-package-agreements', {
-          ...execOptions,
-          timeout: 300000 // 5 minutes for download + install
-        })
-        return { success: true, method: 'winget' }
-      }
+    // Use portable Node.js (downloads to app data, no admin rights needed)
+    const result = await installPortableNode((status, percent) => {
+      // Send progress to renderer
+      mainWindow?.webContents.send('install:progress', { type: 'node', status, percent })
+    })
 
-      // Fallback: Download and run Node.js installer
-      shell.openExternal('https://nodejs.org/dist/v20.18.1/node-v20.18.1-x64.msi')
-      return { success: true, method: 'download', message: 'Node.js installer opened. Please complete the installation and restart Claude Terminal.' }
+    if (result.success) {
+      // Update portable bin dirs after installation
+      const portableDirs = getPortableBinDirs()
+      setPortableBinDirs(portableDirs)
+      console.log('Updated portable bin directories:', portableDirs)
+      return { success: true, method: 'portable' }
     }
 
-    // macOS: Try brew first
-    if (process.platform === 'darwin') {
-      try {
-        await execAsync('brew --version', execOptions)
-        await execAsync('brew install node', { ...execOptions, timeout: 300000 })
-        return { success: true, method: 'brew' }
-      } catch {
-        // No brew, open download page
-        shell.openExternal('https://nodejs.org/dist/v20.18.1/node-v20.18.1.pkg')
-        return { success: true, method: 'download', message: 'Node.js installer opened. Please complete the installation and restart Claude Terminal.' }
-      }
-    }
-
-    // Linux: Try package managers
-    if (process.platform === 'linux') {
-      // Try apt (Debian/Ubuntu)
-      try {
-        await execAsync('apt --version', execOptions)
-        // Use NodeSource for latest LTS
-        shell.openExternal('https://nodejs.org/en/download/')
-        return { success: true, method: 'download', message: 'Please install Node.js from the download page or your package manager, then restart Claude Terminal.' }
-      } catch {}
-
-      // Try dnf (Fedora)
-      try {
-        await execAsync('dnf --version', execOptions)
-        shell.openExternal('https://nodejs.org/en/download/')
-        return { success: true, method: 'download', message: 'Please install Node.js from the download page or run: sudo dnf install nodejs npm' }
-      } catch {}
-
-      // Try pacman (Arch)
-      try {
-        await execAsync('pacman --version', execOptions)
-        shell.openExternal('https://nodejs.org/en/download/')
-        return { success: true, method: 'download', message: 'Please install Node.js from the download page or run: sudo pacman -S nodejs npm' }
-      } catch {}
-
-      // Generic fallback
-      shell.openExternal('https://nodejs.org/en/download/')
-      return { success: true, method: 'download', message: 'Please install Node.js from the download page, then restart Claude Terminal.' }
-    }
-
-    // Unknown platform
-    shell.openExternal('https://nodejs.org/en/download/')
-    return { success: true, method: 'download', message: 'Please install Node.js from the download page, then restart Claude Terminal.' }
+    return result
   } catch (e: any) {
     return { success: false, error: e.message }
   }
@@ -320,7 +287,23 @@ ipcMain.handle('claude:install', async () => {
     // Reset cache so we re-check after install
     claudeAvailable = null
 
-    // Check if npm is available first
+    // Check if portable npm is available
+    const portableNpm = getPortableNpmPath()
+    if (portableNpm) {
+      // Use portable npm
+      const result = await installClaudeWithPortableNpm()
+      if (result.success) {
+        // Update portable bin dirs
+        const portableDirs = getPortableBinDirs()
+        setPortableBinDirs(portableDirs)
+
+        const installed = await checkClaudeInstalled()
+        return { success: installed, error: installed ? undefined : 'Installation completed but claude command not found' }
+      }
+      return result
+    }
+
+    // Fallback to system npm
     const hasNpm = await checkNpmInstalled()
     if (!hasNpm) {
       return { success: false, error: 'npm is not installed. Please install Node.js first.', needsNode: true }
@@ -468,12 +451,45 @@ async function checkPipInstalled(): Promise<boolean> {
   }
 }
 
+// Python installation handler (for portable Python on Windows)
+ipcMain.handle('python:install', async () => {
+  try {
+    const result = await installPortablePython((status, percent) => {
+      mainWindow?.webContents.send('install:progress', { type: 'python', status, percent })
+    })
+
+    if (result.success) {
+      // Update portable bin dirs after installation
+      const portableDirs = getPortableBinDirs()
+      setPortableBinDirs(portableDirs)
+      return { success: true, method: 'portable' }
+    }
+
+    return result
+  } catch (e: any) {
+    return { success: false, error: e.message }
+  }
+})
+
 ipcMain.handle('beads:install', async () => {
   const { shell } = await import('electron')
 
   try {
     // Reset cache so we re-check after install
     beadsAvailable = null
+
+    // Check if portable pip is available (Windows)
+    const portablePip = getPortablePipPath()
+    if (portablePip) {
+      const result = await installBeadsWithPortablePip()
+      if (result.success) {
+        const portableDirs = getPortableBinDirs()
+        setPortableBinDirs(portableDirs)
+        const installed = await checkBeadsInstalled()
+        return { success: installed, method: 'portable', error: installed ? undefined : 'Installation completed but bd command not found' }
+      }
+      return result
+    }
 
     // Try pipx first (better for CLI tools - isolated environment)
     const hasPipx = await checkPipxInstalled()
@@ -496,10 +512,9 @@ ipcMain.handle('beads:install', async () => {
       return { success: installed, method: 'pip', error: installed ? undefined : 'Installation completed but bd command not found. You may need to restart the app.' }
     }
 
-    // No pip available - guide user to install Python
+    // No pip available - need Python installation
     if (isWindows) {
-      shell.openExternal('https://www.python.org/downloads/windows/')
-      return { success: false, needsPython: true, error: 'Python is required. Please install Python from the download page, then restart Claude Terminal.' }
+      return { success: false, needsPython: true, error: 'Python is required. Click "Install Python" to download the portable version.' }
     } else if (process.platform === 'darwin') {
       shell.openExternal('https://www.python.org/downloads/macos/')
       return { success: false, needsPython: true, error: 'Python is required. Please install Python from the download page, then restart Claude Terminal.' }

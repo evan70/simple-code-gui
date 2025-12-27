@@ -23,6 +23,8 @@ declare global {
       claudeCheck: () => Promise<{ installed: boolean; npmInstalled: boolean }>
       claudeInstall: () => Promise<{ success: boolean; error?: string; needsNode?: boolean }>
       nodeInstall: () => Promise<{ success: boolean; error?: string; method?: string; message?: string }>
+      pythonInstall: () => Promise<{ success: boolean; error?: string; method?: string }>
+      onInstallProgress: (callback: (data: { type: string; status: string; percent?: number }) => void) => () => void
       beadsCheck: (cwd: string) => Promise<{ installed: boolean; initialized: boolean }>
       beadsInit: (cwd: string) => Promise<{ success: boolean; error?: string }>
       beadsInstall: () => Promise<{ success: boolean; error?: string; method?: string; needsPython?: boolean }>

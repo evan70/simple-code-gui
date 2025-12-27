@@ -1727,6 +1727,19 @@ html, body, #root {
   word-break: break-word;
 }
 
+.beads-install-status {
+  color: var(--accent);
+  font-size: 11px;
+  padding: var(--space-xs) 0;
+}
+
+.beads-install-buttons {
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
 .beads-create-form {
   display: flex;
   flex-direction: column;

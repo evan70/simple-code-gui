@@ -1,7 +1,8 @@
 import * as pty from 'node-pty'
 import * as fs from 'fs'
 import * as path from 'path'
-import { isWindows, getEnhancedPath, getAdditionalPaths } from './platform'
+import { isWindows, getEnhancedPathWithPortable, getAdditionalPaths } from './platform'
+import { getPortableBinDirs } from './portable-deps'
 
 interface ClaudeProcess {
   id: string
@@ -12,7 +13,7 @@ interface ClaudeProcess {
 
 function getEnhancedEnv(): { [key: string]: string } {
   const env = { ...process.env } as { [key: string]: string }
-  env.PATH = getEnhancedPath()
+  env.PATH = getEnhancedPathWithPortable()
   return env
 }
 
@@ -22,7 +23,17 @@ function findClaudeExecutable(): string {
     return 'claude'
   }
 
-  // On Windows, check for claude.cmd in npm paths
+  // On Windows, check for claude.cmd in portable npm-global first
+  const portableDirs = getPortableBinDirs()
+  for (const dir of portableDirs) {
+    const claudeCmd = path.join(dir, 'claude.cmd')
+    if (fs.existsSync(claudeCmd)) {
+      console.log('Found Claude at (portable):', claudeCmd)
+      return claudeCmd
+    }
+  }
+
+  // Then check for claude.cmd in system npm paths
   const additionalPaths = getAdditionalPaths()
   for (const dir of additionalPaths) {
     const claudeCmd = path.join(dir, 'claude.cmd')

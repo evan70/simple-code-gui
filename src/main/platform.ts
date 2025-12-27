@@ -59,3 +59,16 @@ export function getEnhancedPath(): string {
   const currentPath = process.env.PATH || ''
   return [...additionalPaths, currentPath].join(PATH_SEP)
 }
+
+// Build enhanced PATH with portable deps (called at runtime)
+let portableBinDirs: string[] = []
+
+export function setPortableBinDirs(dirs: string[]): void {
+  portableBinDirs = dirs
+}
+
+export function getEnhancedPathWithPortable(): string {
+  const additionalPaths = getAdditionalPaths()
+  const currentPath = process.env.PATH || ''
+  return [...portableBinDirs, ...additionalPaths, currentPath].join(PATH_SEP)
+}

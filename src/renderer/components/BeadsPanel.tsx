@@ -24,8 +24,10 @@ export function BeadsPanel({ projectPath, isExpanded, onToggle }: BeadsPanelProp
   const [showCreateForm, setShowCreateForm] = useState(false)
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [initializing, setInitializing] = useState(false)
-  const [installing, setInstalling] = useState(false)
+  const [installing, setInstalling] = useState<'beads' | 'python' | null>(null)
   const [installError, setInstallError] = useState<string | null>(null)
+  const [needsPython, setNeedsPython] = useState(false)
+  const [installStatus, setInstallStatus] = useState<string | null>(null)
 
   const loadTasks = useCallback(async (showLoading = true) => {
     if (!projectPath) return
@@ -73,24 +75,63 @@ export function BeadsPanel({ projectPath, isExpanded, onToggle }: BeadsPanelProp
     }
   }
 
-  const handleInstallBeads = async () => {
-    setInstalling(true)
+  const handleInstallPython = async () => {
+    setInstalling('python')
     setInstallError(null)
+    setInstallStatus('Downloading Python...')
+
+    try {
+      const result = await window.electronAPI.pythonInstall()
+      if (result.success) {
+        setNeedsPython(false)
+        setInstallStatus(null)
+        // Now try installing beads again
+        handleInstallBeads()
+      } else {
+        setInstallError(result.error || 'Python installation failed')
+        setInstallStatus(null)
+      }
+    } catch (e) {
+      setInstallError(String(e))
+      setInstallStatus(null)
+    } finally {
+      setInstalling(null)
+    }
+  }
+
+  const handleInstallBeads = async () => {
+    setInstalling('beads')
+    setInstallError(null)
+    setNeedsPython(false)
 
     try {
       const result = await window.electronAPI.beadsInstall()
       if (result.success) {
         setBeadsInstalled(true)
         loadTasks()
+      } else if (result.needsPython) {
+        setNeedsPython(true)
+        setInstallError(result.error || 'Python is required')
       } else {
         setInstallError(result.error || 'Installation failed')
       }
     } catch (e) {
       setInstallError(String(e))
     } finally {
-      setInstalling(false)
+      setInstalling(null)
     }
   }
+
+  // Listen for install progress
+  useEffect(() => {
+    const cleanup = window.electronAPI.onInstallProgress((data) => {
+      if (data.type === 'python') {
+        const percent = data.percent !== undefined ? ` (${data.percent}%)` : ''
+        setInstallStatus(`${data.status}${percent}`)
+      }
+    })
+    return cleanup
+  }, [])
 
   useEffect(() => {
     if (projectPath && isExpanded) {
@@ -194,13 +235,25 @@ export function BeadsPanel({ projectPath, isExpanded, onToggle }: BeadsPanelProp
             <div className="beads-empty">
               <p>Beads CLI (<code>bd</code>) not found.</p>
               {installError && <p className="beads-install-error">{installError}</p>}
-              <button
-                className="beads-init-btn"
-                onClick={handleInstallBeads}
-                disabled={installing}
-              >
-                {installing ? 'Installing...' : 'Install Beads CLI'}
-              </button>
+              {installStatus && <p className="beads-install-status">{installStatus}</p>}
+              <div className="beads-install-buttons">
+                {needsPython && (
+                  <button
+                    className="beads-init-btn"
+                    onClick={handleInstallPython}
+                    disabled={installing !== null}
+                  >
+                    {installing === 'python' ? 'Installing Python...' : '1. Install Python'}
+                  </button>
+                )}
+                <button
+                  className="beads-init-btn"
+                  onClick={handleInstallBeads}
+                  disabled={installing !== null || needsPython}
+                >
+                  {installing === 'beads' ? 'Installing...' : needsPython ? '2. Install Beads' : 'Install Beads CLI'}
+                </button>
+              </div>
             </div>
           )}
 
