@@ -141,6 +141,23 @@ export function Terminal({ ptyId, isActive, theme, onFocus }: TerminalProps) {
       }
     })
 
+    // Prevent scroll jump on click - save and restore position
+    containerRef.current.addEventListener('mousedown', (e) => {
+      // Save scroll position before click processing
+      const buffer = terminal.buffer.active
+      const savedViewportY = buffer.viewportY
+      const wasAtBottom = buffer.viewportY >= buffer.baseY
+
+      // Restore scroll position after a brief delay (after xterm processes the click)
+      requestAnimationFrame(() => {
+        const newBuffer = terminal.buffer.active
+        // Only restore if scroll position changed unexpectedly (not from wheel scroll)
+        if (!wasAtBottom && newBuffer.viewportY !== savedViewportY) {
+          terminal.scrollToLine(savedViewportY)
+        }
+      })
+    })
+
     // Handle PTY output
     let firstData = true
     const cleanupData = window.electronAPI.onPtyData(ptyId, (data) => {
@@ -167,18 +184,33 @@ export function Terminal({ ptyId, isActive, theme, onFocus }: TerminalProps) {
       terminal.write(`\r\n\x1b[90m[Process exited with code ${code}]\x1b[0m\r\n`)
     })
 
-    // Handle resize
+    // Handle resize - preserve scroll position
     const handleResize = () => {
-      if (!fitAddonRef.current || !containerRef.current) return
+      if (!fitAddonRef.current || !containerRef.current || !terminalRef.current) return
 
       const rect = containerRef.current.getBoundingClientRect()
       // Only fit if container is visible and has dimensions
       if (rect.width > 0 && rect.height > 0) {
+        // Save scroll position before resize
+        const buffer = terminalRef.current.buffer.active
+        const wasAtBottom = buffer.viewportY >= buffer.baseY
+        const scrollOffset = buffer.baseY - buffer.viewportY
+
         fitAddonRef.current.fit()
         const dims = fitAddonRef.current.proposeDimensions()
         if (dims && dims.cols > 0 && dims.rows > 0) {
           console.log('Terminal resize:', dims.cols, 'x', dims.rows)
           window.electronAPI.resizePty(ptyId, dims.cols, dims.rows)
+        }
+
+        // Restore scroll position after resize
+        if (wasAtBottom) {
+          terminalRef.current.scrollToBottom()
+        } else {
+          // Try to maintain the same relative scroll position
+          const newBuffer = terminalRef.current.buffer.active
+          const targetY = Math.max(0, newBuffer.baseY - scrollOffset)
+          terminalRef.current.scrollToLine(targetY)
         }
       }
     }
@@ -200,20 +232,34 @@ export function Terminal({ ptyId, isActive, theme, onFocus }: TerminalProps) {
     }
   }, [ptyId])
 
-  // Refit when tab becomes active
+  // Refit when tab becomes active - preserve scroll position
   useEffect(() => {
-    if (isActive && fitAddonRef.current && containerRef.current) {
+    if (isActive && fitAddonRef.current && containerRef.current && terminalRef.current) {
       // Multiple fit attempts to handle visibility timing
       const doFit = () => {
-        if (!fitAddonRef.current || !containerRef.current) return
+        if (!fitAddonRef.current || !containerRef.current || !terminalRef.current) return
 
         // Ensure container has dimensions before fitting
         const rect = containerRef.current.getBoundingClientRect()
         if (rect.width > 0 && rect.height > 0) {
+          // Save scroll position
+          const buffer = terminalRef.current.buffer.active
+          const wasAtBottom = buffer.viewportY >= buffer.baseY
+          const scrollOffset = buffer.baseY - buffer.viewportY
+
           fitAddonRef.current.fit()
           const dims = fitAddonRef.current.proposeDimensions()
           if (dims && dims.cols > 0 && dims.rows > 0) {
             window.electronAPI.resizePty(ptyId, dims.cols, dims.rows)
+          }
+
+          // Restore scroll position
+          if (wasAtBottom) {
+            terminalRef.current.scrollToBottom()
+          } else {
+            const newBuffer = terminalRef.current.buffer.active
+            const targetY = Math.max(0, newBuffer.baseY - scrollOffset)
+            terminalRef.current.scrollToLine(targetY)
           }
         }
         terminalRef.current?.focus()
