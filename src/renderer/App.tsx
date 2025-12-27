@@ -331,7 +331,60 @@ function App() {
         onUpdateProject={updateProject}
       />
       <div className="main-content">
-        {openTabs.length > 0 ? (
+        {claudeInstalled === false || gitBashInstalled === false ? (
+          <div className="empty-state">
+            <h2>{claudeInstalled === false ? 'Claude Code Not Found' : 'Git Required'}</h2>
+            <p>{claudeInstalled === false
+              ? 'Claude Code needs to be installed to use this application.'
+              : 'Claude Code requires Git (git-bash) on Windows.'}</p>
+            {installError && (
+              <p className="error-message">{installError}</p>
+            )}
+            {installMessage && (
+              <p className="install-message">{installMessage}</p>
+            )}
+            <div className="install-buttons">
+              {gitBashInstalled === false && (
+                <button
+                  className="install-btn"
+                  onClick={handleInstallGit}
+                  disabled={installing !== null}
+                >
+                  {installing === 'git' ? 'Installing Git...' : '1. Install Git'}
+                </button>
+              )}
+              {!npmInstalled && (
+                <button
+                  className="install-btn"
+                  onClick={handleInstallNode}
+                  disabled={installing !== null}
+                >
+                  {installing === 'node' ? 'Installing Node.js...' : gitBashInstalled === false ? '2. Install Node.js' : '1. Install Node.js'}
+                </button>
+              )}
+              {claudeInstalled === false && (
+                <button
+                  className="install-btn"
+                  onClick={handleInstallClaude}
+                  disabled={installing !== null || !npmInstalled}
+                >
+                  {installing === 'claude' ? 'Installing Claude...' :
+                    (!npmInstalled && gitBashInstalled === false) ? '3. Install Claude Code' :
+                    !npmInstalled ? '2. Install Claude Code' : 'Install Claude Code'}
+                </button>
+              )}
+            </div>
+            {(gitBashInstalled === false || !npmInstalled) && (
+              <p className="install-note">
+                {gitBashInstalled === false && !npmInstalled
+                  ? 'Git and Node.js are required for Claude Code.'
+                  : gitBashInstalled === false
+                    ? 'Git is required for Claude Code on Windows.'
+                    : 'Node.js is required to install Claude Code.'}
+              </p>
+            )}
+          </div>
+        ) : openTabs.length > 0 ? (
           <>
             <div className="terminal-header">
               {viewMode === 'tabs' && (
@@ -393,59 +446,6 @@ function App() {
               </div>
             )}
           </>
-        ) : claudeInstalled === false || gitBashInstalled === false ? (
-          <div className="empty-state">
-            <h2>{claudeInstalled === false ? 'Claude Code Not Found' : 'Git Required'}</h2>
-            <p>{claudeInstalled === false
-              ? 'Claude Code needs to be installed to use this application.'
-              : 'Claude Code requires Git (git-bash) on Windows.'}</p>
-            {installError && (
-              <p className="error-message">{installError}</p>
-            )}
-            {installMessage && (
-              <p className="install-message">{installMessage}</p>
-            )}
-            <div className="install-buttons">
-              {gitBashInstalled === false && (
-                <button
-                  className="install-btn"
-                  onClick={handleInstallGit}
-                  disabled={installing !== null}
-                >
-                  {installing === 'git' ? 'Installing Git...' : '1. Install Git'}
-                </button>
-              )}
-              {!npmInstalled && (
-                <button
-                  className="install-btn"
-                  onClick={handleInstallNode}
-                  disabled={installing !== null}
-                >
-                  {installing === 'node' ? 'Installing Node.js...' : gitBashInstalled === false ? '2. Install Node.js' : '1. Install Node.js'}
-                </button>
-              )}
-              {claudeInstalled === false && (
-                <button
-                  className="install-btn"
-                  onClick={handleInstallClaude}
-                  disabled={installing !== null || !npmInstalled}
-                >
-                  {installing === 'claude' ? 'Installing Claude...' :
-                    (!npmInstalled && gitBashInstalled === false) ? '3. Install Claude Code' :
-                    !npmInstalled ? '2. Install Claude Code' : 'Install Claude Code'}
-                </button>
-              )}
-            </div>
-            {(gitBashInstalled === false || !npmInstalled) && (
-              <p className="install-note">
-                {gitBashInstalled === false && !npmInstalled
-                  ? 'Git and Node.js are required for Claude Code.'
-                  : gitBashInstalled === false
-                    ? 'Git is required for Claude Code on Windows.'
-                    : 'Node.js is required to install Claude Code.'}
-              </p>
-            )}
-          </div>
         ) : (
           <div className="empty-state">
             <h2>Simple Claude GUI</h2>
