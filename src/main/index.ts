@@ -252,6 +252,25 @@ async function checkNpmInstalled(): Promise<boolean> {
   }
 }
 
+// Check if git-bash is available (required for Claude Code on Windows)
+function checkGitBashInstalled(): boolean {
+  if (!isWindows) return true // Not needed on Unix
+
+  const gitBashPaths = [
+    'C:\\Program Files\\Git\\bin\\bash.exe',
+    'C:\\Program Files (x86)\\Git\\bin\\bash.exe',
+    path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Git', 'bin', 'bash.exe'),
+    path.join(process.env.PROGRAMFILES || '', 'Git', 'bin', 'bash.exe'),
+  ]
+
+  for (const bashPath of gitBashPaths) {
+    if (existsSync(bashPath)) {
+      return true
+    }
+  }
+  return false
+}
+
 // Check if winget is available (Windows 10/11)
 async function checkWingetInstalled(): Promise<boolean> {
   if (!isWindows) return false
@@ -266,7 +285,8 @@ async function checkWingetInstalled(): Promise<boolean> {
 ipcMain.handle('claude:check', async () => {
   const installed = await checkClaudeInstalled()
   const npmInstalled = await checkNpmInstalled()
-  return { installed, npmInstalled }
+  const gitBashInstalled = checkGitBashInstalled()
+  return { installed, npmInstalled, gitBashInstalled }
 })
 
 ipcMain.handle('node:install', async () => {
@@ -286,6 +306,45 @@ ipcMain.handle('node:install', async () => {
     }
 
     return result
+  } catch (e: any) {
+    return { success: false, error: e.message }
+  }
+})
+
+ipcMain.handle('git:install', async () => {
+  if (!isWindows) {
+    return { success: false, error: 'Git installation is only needed on Windows. Install via your package manager.' }
+  }
+
+  const { shell } = await import('electron')
+
+  try {
+    mainWindow?.webContents.send('install:progress', { type: 'git', status: 'Checking winget...', percent: 0 })
+
+    // Try winget first (silent install, no admin needed for user-scope)
+    const hasWinget = await checkWingetInstalled()
+    if (hasWinget) {
+      mainWindow?.webContents.send('install:progress', { type: 'git', status: 'Installing Git via winget...', percent: 20 })
+      try {
+        await execAsync('winget install --id Git.Git --source winget --accept-package-agreements --accept-source-agreements', {
+          ...getExecOptions(),
+          timeout: 300000  // 5 minutes
+        })
+        mainWindow?.webContents.send('install:progress', { type: 'git', status: 'Git installed!', percent: 100 })
+        return { success: true, method: 'winget', message: 'Git installed! Please restart Simple Claude GUI.' }
+      } catch (e: any) {
+        console.log('Winget install failed, falling back to download:', e.message)
+      }
+    }
+
+    // Fallback: Open download page
+    mainWindow?.webContents.send('install:progress', { type: 'git', status: 'Opening download page...', percent: 50 })
+    shell.openExternal('https://git-scm.com/downloads/win')
+    return {
+      success: false,
+      method: 'download',
+      message: 'Please download and install Git for Windows, then restart Simple Claude GUI.'
+    }
   } catch (e: any) {
     return { success: false, error: e.message }
   }

@@ -20,9 +20,10 @@ declare global {
       createProject: (name: string, parentDir: string) => Promise<{ success: boolean; path?: string; error?: string }>
       selectExecutable: () => Promise<string | null>
       runExecutable: (executable: string, cwd: string) => Promise<{ success: boolean; error?: string }>
-      claudeCheck: () => Promise<{ installed: boolean; npmInstalled: boolean }>
+      claudeCheck: () => Promise<{ installed: boolean; npmInstalled: boolean; gitBashInstalled: boolean }>
       claudeInstall: () => Promise<{ success: boolean; error?: string; needsNode?: boolean }>
       nodeInstall: () => Promise<{ success: boolean; error?: string; method?: string; message?: string }>
+      gitInstall: () => Promise<{ success: boolean; error?: string; method?: string; message?: string }>
       pythonInstall: () => Promise<{ success: boolean; error?: string; method?: string }>
       onInstallProgress: (callback: (data: { type: string; status: string; percent?: number }) => void) => () => void
       beadsCheck: (cwd: string) => Promise<{ installed: boolean; initialized: boolean }>
@@ -74,7 +75,8 @@ function App() {
   const [lastFocusedTabId, setLastFocusedTabId] = useState<string | null>(null)
   const [claudeInstalled, setClaudeInstalled] = useState<boolean | null>(null)
   const [npmInstalled, setNpmInstalled] = useState<boolean | null>(null)
-  const [installing, setInstalling] = useState<'node' | 'claude' | null>(null)
+  const [gitBashInstalled, setGitBashInstalled] = useState<boolean | null>(null)
+  const [installing, setInstalling] = useState<'node' | 'git' | 'claude' | null>(null)
   const [installError, setInstallError] = useState<string | null>(null)
   const [installMessage, setInstallMessage] = useState<string | null>(null)
   const [appVersion, setAppVersion] = useState<string>('')
@@ -94,10 +96,11 @@ function App() {
 
     const loadWorkspace = async () => {
       try {
-        // Check if Claude and npm are installed
+        // Check if Claude, npm, and git-bash are installed
         const claudeStatus = await window.electronAPI.claudeCheck()
         setClaudeInstalled(claudeStatus.installed)
         setNpmInstalled(claudeStatus.npmInstalled)
+        setGitBashInstalled(claudeStatus.gitBashInstalled)
 
         // Load and apply theme
         const settings = await window.electronAPI.getSettings()
@@ -282,6 +285,26 @@ function App() {
     setInstalling(null)
   }, [])
 
+  const handleInstallGit = useCallback(async () => {
+    setInstalling('git')
+    setInstallError(null)
+    setInstallMessage(null)
+    try {
+      const result = await window.electronAPI.gitInstall()
+      if (result.success) {
+        setGitBashInstalled(true)
+        setInstallMessage(result.message || 'Git installed! Please restart Simple Claude GUI.')
+      } else if (result.method === 'download') {
+        setInstallMessage(result.message || 'Please download and install Git, then restart Simple Claude GUI.')
+      } else {
+        setInstallError(result.error || 'Installation failed')
+      }
+    } catch (e) {
+      setInstallError(String(e))
+    }
+    setInstalling(null)
+  }, [])
+
   if (loading) {
     return (
       <div className="app">
@@ -370,10 +393,12 @@ function App() {
               </div>
             )}
           </>
-        ) : claudeInstalled === false ? (
+        ) : claudeInstalled === false || gitBashInstalled === false ? (
           <div className="empty-state">
-            <h2>Claude Code Not Found</h2>
-            <p>Claude Code needs to be installed to use this application.</p>
+            <h2>{claudeInstalled === false ? 'Claude Code Not Found' : 'Git Required'}</h2>
+            <p>{claudeInstalled === false
+              ? 'Claude Code needs to be installed to use this application.'
+              : 'Claude Code requires Git (git-bash) on Windows.'}</p>
             {installError && (
               <p className="error-message">{installError}</p>
             )}
@@ -381,26 +406,43 @@ function App() {
               <p className="install-message">{installMessage}</p>
             )}
             <div className="install-buttons">
+              {gitBashInstalled === false && (
+                <button
+                  className="install-btn"
+                  onClick={handleInstallGit}
+                  disabled={installing !== null}
+                >
+                  {installing === 'git' ? 'Installing Git...' : '1. Install Git'}
+                </button>
+              )}
               {!npmInstalled && (
                 <button
                   className="install-btn"
                   onClick={handleInstallNode}
                   disabled={installing !== null}
                 >
-                  {installing === 'node' ? 'Installing Node.js...' : '1. Install Node.js'}
+                  {installing === 'node' ? 'Installing Node.js...' : gitBashInstalled === false ? '2. Install Node.js' : '1. Install Node.js'}
                 </button>
               )}
-              <button
-                className="install-btn"
-                onClick={handleInstallClaude}
-                disabled={installing !== null || !npmInstalled}
-              >
-                {installing === 'claude' ? 'Installing Claude...' : npmInstalled ? 'Install Claude Code' : '2. Install Claude Code'}
-              </button>
+              {claudeInstalled === false && (
+                <button
+                  className="install-btn"
+                  onClick={handleInstallClaude}
+                  disabled={installing !== null || !npmInstalled}
+                >
+                  {installing === 'claude' ? 'Installing Claude...' :
+                    (!npmInstalled && gitBashInstalled === false) ? '3. Install Claude Code' :
+                    !npmInstalled ? '2. Install Claude Code' : 'Install Claude Code'}
+                </button>
+              )}
             </div>
-            {!npmInstalled && (
+            {(gitBashInstalled === false || !npmInstalled) && (
               <p className="install-note">
-                Node.js is required to install Claude Code.
+                {gitBashInstalled === false && !npmInstalled
+                  ? 'Git and Node.js are required for Claude Code.'
+                  : gitBashInstalled === false
+                    ? 'Git is required for Claude Code on Windows.'
+                    : 'Node.js is required to install Claude Code.'}
               </p>
             )}
           </div>

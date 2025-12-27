@@ -26,10 +26,11 @@ export interface ElectronAPI {
   selectExecutable: () => Promise<string | null>
   runExecutable: (executable: string, cwd: string) => Promise<{ success: boolean; error?: string }>
 
-  // Claude Code & Node.js & Python
-  claudeCheck: () => Promise<{ installed: boolean; npmInstalled: boolean }>
+  // Claude Code & Node.js & Python & Git
+  claudeCheck: () => Promise<{ installed: boolean; npmInstalled: boolean; gitBashInstalled: boolean }>
   claudeInstall: () => Promise<{ success: boolean; error?: string; needsNode?: boolean }>
   nodeInstall: () => Promise<{ success: boolean; error?: string; method?: string; message?: string }>
+  gitInstall: () => Promise<{ success: boolean; error?: string; method?: string; message?: string }>
   pythonInstall: () => Promise<{ success: boolean; error?: string; method?: string }>
   onInstallProgress: (callback: (data: { type: string; status: string; percent?: number }) => void) => () => void
 
@@ -82,10 +83,11 @@ const api: ElectronAPI = {
   selectExecutable: () => ipcRenderer.invoke('executable:select'),
   runExecutable: (executable, cwd) => ipcRenderer.invoke('executable:run', { executable, cwd }),
 
-  // Claude Code & Node.js & Python
+  // Claude Code & Node.js & Python & Git
   claudeCheck: () => ipcRenderer.invoke('claude:check'),
   claudeInstall: () => ipcRenderer.invoke('claude:install'),
   nodeInstall: () => ipcRenderer.invoke('node:install'),
+  gitInstall: () => ipcRenderer.invoke('git:install'),
   pythonInstall: () => ipcRenderer.invoke('python:install'),
   onInstallProgress: (callback) => {
     const handler = (_: any, data: { type: string; status: string; percent?: number }) => callback(data)
