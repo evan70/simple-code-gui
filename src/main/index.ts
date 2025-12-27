@@ -105,17 +105,22 @@ ipcMain.handle('sessions:discover', (_, projectPath: string) => {
 
 // PTY management
 ipcMain.handle('pty:spawn', (_, { cwd, sessionId }: { cwd: string; sessionId?: string }) => {
-  const id = ptyManager.spawn(cwd, sessionId)
+  try {
+    const id = ptyManager.spawn(cwd, sessionId)
 
-  ptyManager.onData(id, (data) => {
-    mainWindow?.webContents.send(`pty:data:${id}`, data)
-  })
+    ptyManager.onData(id, (data) => {
+      mainWindow?.webContents.send(`pty:data:${id}`, data)
+    })
 
-  ptyManager.onExit(id, (code) => {
-    mainWindow?.webContents.send(`pty:exit:${id}`, code)
-  })
+    ptyManager.onExit(id, (code) => {
+      mainWindow?.webContents.send(`pty:exit:${id}`, code)
+    })
 
-  return id
+    return id
+  } catch (error: any) {
+    console.error('Failed to spawn PTY:', error)
+    throw new Error(`Failed to start Claude: ${error.message}`)
+  }
 })
 
 ipcMain.on('pty:write', (_, { id, data }: { id: string; data: string }) => {

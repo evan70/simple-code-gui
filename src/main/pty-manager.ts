@@ -1,5 +1,7 @@
 import * as pty from 'node-pty'
-import { isWindows, getEnhancedPath } from './platform'
+import * as fs from 'fs'
+import * as path from 'path'
+import { isWindows, getEnhancedPath, getAdditionalPaths } from './platform'
 
 interface ClaudeProcess {
   id: string
@@ -12,6 +14,26 @@ function getEnhancedEnv(): { [key: string]: string } {
   const env = { ...process.env } as { [key: string]: string }
   env.PATH = getEnhancedPath()
   return env
+}
+
+// Find claude executable - on Windows, npm installs .cmd files
+function findClaudeExecutable(): string {
+  if (!isWindows) {
+    return 'claude'
+  }
+
+  // On Windows, check for claude.cmd in npm paths
+  const additionalPaths = getAdditionalPaths()
+  for (const dir of additionalPaths) {
+    const claudeCmd = path.join(dir, 'claude.cmd')
+    if (fs.existsSync(claudeCmd)) {
+      console.log('Found Claude at:', claudeCmd)
+      return claudeCmd
+    }
+  }
+
+  // Fall back to just 'claude' and let PATH resolve it
+  return 'claude'
 }
 
 export class PtyManager {
@@ -27,7 +49,10 @@ export class PtyManager {
       args.push('-r', sessionId)
     }
 
-    const shell = pty.spawn('claude', args, {
+    const claudeExe = findClaudeExecutable()
+    console.log('Spawning Claude:', claudeExe, 'in', cwd, 'with args:', args)
+
+    const shell = pty.spawn(claudeExe, args, {
       name: 'xterm-256color',
       cols: 120,
       rows: 30,

@@ -191,8 +191,11 @@ function App() {
         title,
         ptyId
       })
-    } catch (e) {
+    } catch (e: any) {
       console.error('Failed to spawn PTY:', e)
+      // Show error to user
+      const errorMsg = e?.message || String(e)
+      alert(`Failed to start Claude session:\n\n${errorMsg}\n\nPlease ensure Claude Code is installed and try restarting the application.`)
     }
   }, [addTab, openTabs, setActiveTab])
 
