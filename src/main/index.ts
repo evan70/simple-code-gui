@@ -1,6 +1,6 @@
 import { app, BrowserWindow, ipcMain, dialog } from 'electron'
-import { join } from 'path'
-import { mkdirSync, existsSync } from 'fs'
+import { join, dirname } from 'path'
+import { mkdirSync, existsSync, readdirSync, copyFileSync, statSync } from 'fs'
 import { spawn, exec } from 'child_process'
 import { promisify } from 'util'
 
@@ -19,6 +19,44 @@ import {
   installClaudeWithPortableNpm,
   installBeadsWithPortablePip
 } from './portable-deps'
+
+// Migrate user data from old app name to new app name
+function migrateUserData() {
+  const newUserData = app.getPath('userData')
+  const oldUserData = join(dirname(newUserData), 'claude-terminal')
+
+  // Check if old data exists and new data doesn't have the main config
+  if (existsSync(oldUserData) && !existsSync(join(newUserData, 'workspace.json'))) {
+    console.log('Migrating user data from', oldUserData, 'to', newUserData)
+
+    try {
+      // Ensure new directory exists
+      if (!existsSync(newUserData)) {
+        mkdirSync(newUserData, { recursive: true })
+      }
+
+      // Copy all files from old to new
+      const files = readdirSync(oldUserData)
+      for (const file of files) {
+        const oldPath = join(oldUserData, file)
+        const newPath = join(newUserData, file)
+
+        // Only copy files, not directories (to avoid copying deps folder)
+        if (statSync(oldPath).isFile()) {
+          console.log('Migrating:', file)
+          copyFileSync(oldPath, newPath)
+        }
+      }
+
+      console.log('Migration complete!')
+    } catch (e) {
+      console.error('Migration failed:', e)
+    }
+  }
+}
+
+// Run migration before anything else
+migrateUserData()
 
 let mainWindow: BrowserWindow | null = null
 const ptyManager = new PtyManager()
