@@ -369,14 +369,24 @@ export async function installBeadsBinary(onProgress?: (status: string, percent?:
     const platform = process.platform
     const arch = process.arch
 
-    let assetName: string
+    // Determine platform pattern for asset matching
+    // Asset names are like: beads_0.38.0_windows_amd64.zip
+    let osName: string
+    let archName: string
+    let ext: string
+
     if (platform === 'win32') {
-      assetName = arch === 'arm64' ? 'beads_Windows_arm64.zip' : 'beads_Windows_x86_64.zip'
+      osName = 'windows'
+      ext = '.zip'
     } else if (platform === 'darwin') {
-      assetName = arch === 'arm64' ? 'beads_Darwin_arm64.tar.gz' : 'beads_Darwin_x86_64.tar.gz'
+      osName = 'darwin'
+      ext = '.tar.gz'
     } else {
-      assetName = arch === 'arm64' ? 'beads_Linux_arm64.tar.gz' : 'beads_Linux_x86_64.tar.gz'
+      osName = 'linux'
+      ext = '.tar.gz'
     }
+
+    archName = arch === 'arm64' ? 'arm64' : 'amd64'
 
     // Get latest release URL from GitHub
     onProgress?.('Fetching latest release info...', 0)
@@ -396,13 +406,14 @@ export async function installBeadsBinary(onProgress?: (status: string, percent?:
       }).on('error', reject)
     })
 
-    const asset = releaseInfo.assets?.find((a: any) => a.name === assetName)
+    // Find asset matching pattern: beads_VERSION_OS_ARCH.EXT
+    const assetPattern = new RegExp(`beads_.*_${osName}_${archName}\\${ext}$`)
+    const asset = releaseInfo.assets?.find((a: any) => assetPattern.test(a.name))
     if (!asset) {
-      return { success: false, error: `No release found for ${assetName}` }
+      return { success: false, error: `No release found for ${osName}_${archName}${ext}` }
     }
 
     const downloadUrl = asset.browser_download_url
-    const ext = isWindows ? '.zip' : '.tar.gz'
     const archivePath = path.join(beadsDir, `beads${ext}`)
 
     onProgress?.('Downloading Beads CLI...', 10)
