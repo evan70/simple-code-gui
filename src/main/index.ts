@@ -587,8 +587,6 @@ ipcMain.handle('clipboard:readImage', async () => {
   try {
     const { clipboard } = require('electron')
     const formats = clipboard.availableFormats()
-    console.log('[Clipboard] Available formats:', formats)
-    console.log('[Clipboard] isWindows:', isWindows)
 
     // Check for text/uri-list (Linux file copy)
     if (formats.includes('text/uri-list')) {
@@ -612,13 +610,12 @@ ipcMain.handle('clipboard:readImage', async () => {
         const rawFilePath = clipboard.read('FileNameW')
         if (rawFilePath) {
           const filePath = rawFilePath.replace(new RegExp(String.fromCharCode(0), 'g'), '').trim()
-          console.log('[Clipboard] Windows FileNameW path:', filePath)
           if (filePath && (filePath.includes(':\\') || filePath.startsWith('\\\\'))) {
             return { success: true, hasImage: true, path: filePath, isFile: true }
           }
         }
-      } catch (e) {
-        console.log('[Clipboard] FileNameW read failed:', e)
+      } catch {
+        // FileNameW not available
       }
 
       try {
@@ -626,15 +623,14 @@ ipcMain.handle('clipboard:readImage', async () => {
         const hdropBuffer = clipboard.readBuffer('CF_HDROP')
         if (hdropBuffer && hdropBuffer.length > 0) {
           const hdropStr = hdropBuffer.toString('ucs2').replace(/\0+/g, '\n').trim()
-          console.log('[Clipboard] Windows CF_HDROP:', hdropStr)
           // CF_HDROP has a header, file paths start after some offset
           const lines = hdropStr.split('\n').filter(l => l.includes(':\\') || l.startsWith('\\\\'))
           if (lines.length > 0) {
             return { success: true, hasImage: true, path: lines.join(' '), isFile: true }
           }
         }
-      } catch (e) {
-        console.log('[Clipboard] CF_HDROP read failed:', e)
+      } catch {
+        // CF_HDROP not available
       }
     }
 
@@ -649,7 +645,7 @@ ipcMain.handle('clipboard:readImage', async () => {
           return { success: true, hasImage: true, path: srcMatch[1], isUrl: true }
         }
       }
-      return { success: false, hasImage: false, formats, isWindows }
+      return { success: false, hasImage: false }
     }
 
     // Save to temp file
