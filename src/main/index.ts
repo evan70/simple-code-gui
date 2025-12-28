@@ -605,24 +605,36 @@ ipcMain.handle('clipboard:readImage', async () => {
       }
     }
 
-    // Check for Windows file copy via FileNameW format
-    if (isWindows && formats.some(f => f.includes('FileNameW') || f.includes('FileName'))) {
+    // Check for Windows file copy - try reading FileNameW directly (don't rely on availableFormats)
+    if (isWindows) {
       try {
-        // Try to read FileNameW (UTF-16) or FileName (ASCII)
-        let filePath = ''
-        if (formats.includes('FileNameW')) {
-          const buffer = clipboard.readBuffer('FileNameW')
-          filePath = buffer.toString('utf16le').replace(/\0/g, '').trim()
-        } else if (formats.includes('FileName')) {
-          const buffer = clipboard.readBuffer('FileName')
-          filePath = buffer.toString('utf8').replace(/\0/g, '').trim()
-        }
-        console.log('[Clipboard] Windows file path:', filePath)
-        if (filePath && (filePath.includes(':\\') || filePath.startsWith('\\\\'))) {
-          return { success: true, hasImage: true, path: filePath, isFile: true }
+        // Method 1: clipboard.read('FileNameW') - recommended by Electron community
+        const rawFilePath = clipboard.read('FileNameW')
+        if (rawFilePath) {
+          const filePath = rawFilePath.replace(new RegExp(String.fromCharCode(0), 'g'), '').trim()
+          console.log('[Clipboard] Windows FileNameW path:', filePath)
+          if (filePath && (filePath.includes(':\\') || filePath.startsWith('\\\\'))) {
+            return { success: true, hasImage: true, path: filePath, isFile: true }
+          }
         }
       } catch (e) {
-        console.log('[Clipboard] Failed to read Windows file format:', e)
+        console.log('[Clipboard] FileNameW read failed:', e)
+      }
+
+      try {
+        // Method 2: Try CF_HDROP for multiple files (uses ucs2 encoding)
+        const hdropBuffer = clipboard.readBuffer('CF_HDROP')
+        if (hdropBuffer && hdropBuffer.length > 0) {
+          const hdropStr = hdropBuffer.toString('ucs2').replace(/\0+/g, '\n').trim()
+          console.log('[Clipboard] Windows CF_HDROP:', hdropStr)
+          // CF_HDROP has a header, file paths start after some offset
+          const lines = hdropStr.split('\n').filter(l => l.includes(':\\') || l.startsWith('\\\\'))
+          if (lines.length > 0) {
+            return { success: true, hasImage: true, path: lines.join(' '), isFile: true }
+          }
+        }
+      } catch (e) {
+        console.log('[Clipboard] CF_HDROP read failed:', e)
       }
     }
 
