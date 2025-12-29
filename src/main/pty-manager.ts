@@ -91,13 +91,21 @@ export class PtyManager {
     const claudeExe = findClaudeExecutable()
     console.log('Spawning Claude:', claudeExe, 'in', cwd, 'with args:', args)
 
-    const shell = pty.spawn(claudeExe, args, {
+    const ptyOptions: pty.IPtyForkOptions = {
       name: 'xterm-256color',
       cols: 120,
       rows: 30,
       cwd,
       env: getEnhancedEnv()
-    })
+    }
+
+    // Windows ConPTY options for better escape sequence handling
+    if (isWindows) {
+      (ptyOptions as any).useConpty = true;
+      (ptyOptions as any).conptyInheritCursor = true;
+    }
+
+    const shell = pty.spawn(claudeExe, args, ptyOptions)
 
     const proc: ClaudeProcess = {
       id,
