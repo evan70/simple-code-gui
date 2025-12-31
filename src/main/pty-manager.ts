@@ -80,12 +80,19 @@ export class PtyManager {
   private dataCallbacks: Map<string, (data: string) => void> = new Map()
   private exitCallbacks: Map<string, (code: number) => void> = new Map()
 
-  spawn(cwd: string, sessionId?: string): string {
+  spawn(cwd: string, sessionId?: string, autoAcceptTools?: string[]): string {
     const id = crypto.randomUUID()
 
     const args: string[] = []
     if (sessionId) {
       args.push('-r', sessionId)
+    }
+
+    // Add auto-accept tools if configured
+    if (autoAcceptTools && autoAcceptTools.length > 0) {
+      for (const tool of autoAcceptTools) {
+        args.push('--allowedTools', tool)
+      }
     }
 
     const claudeExe = findClaudeExecutable()
@@ -96,7 +103,8 @@ export class PtyManager {
       cols: 120,
       rows: 30,
       cwd,
-      env: getEnhancedEnv()
+      env: getEnhancedEnv(),
+      handleFlowControl: true  // Enable XON/XOFF flow control for better backpressure handling
     }
 
     // Windows: try winpty instead of ConPTY for better escape sequence handling

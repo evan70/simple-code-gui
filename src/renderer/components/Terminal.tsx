@@ -252,7 +252,14 @@ export function Terminal({ ptyId, isActive, theme, onFocus }: TerminalProps) {
       }
     }
 
-    const resizeObserver = new ResizeObserver(handleResize)
+    // Debounce resize to prevent rapid consecutive fits that cause jumping
+    let resizeTimeout: ReturnType<typeof setTimeout> | null = null
+    const debouncedResize = () => {
+      if (resizeTimeout) clearTimeout(resizeTimeout)
+      resizeTimeout = setTimeout(handleResize, 50)
+    }
+
+    const resizeObserver = new ResizeObserver(debouncedResize)
     resizeObserver.observe(containerRef.current)
 
     // Initial resize - multiple attempts to ensure correct sizing
@@ -264,6 +271,7 @@ export function Terminal({ ptyId, isActive, theme, onFocus }: TerminalProps) {
     return () => {
       cleanupData()
       cleanupExit()
+      if (resizeTimeout) clearTimeout(resizeTimeout)
       resizeObserver.disconnect()
       terminal.dispose()
     }

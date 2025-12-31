@@ -133,6 +133,14 @@ export function BeadsPanel({ projectPath, isExpanded, onToggle }: BeadsPanelProp
     return cleanup
   }, [])
 
+  // Clear tasks immediately when project changes to avoid showing stale data
+  useEffect(() => {
+    setTasks([])
+    setBeadsInitialized(false)
+    setBeadsInstalled(false)
+    setError(null)
+  }, [projectPath])
+
   useEffect(() => {
     if (projectPath && isExpanded) {
       loadTasks(true)

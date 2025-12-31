@@ -15,10 +15,20 @@ export interface OpenTab {
   title: string
 }
 
+export interface TileLayout {
+  id: string
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
 export interface Workspace {
   projects: Project[]
   openTabs: OpenTab[]
   activeTabId: string | null
+  viewMode?: 'tabs' | 'tiled'
+  tileLayout?: TileLayout[]
 }
 
 export interface WindowBounds {
@@ -31,6 +41,7 @@ export interface WindowBounds {
 export interface Settings {
   defaultProjectDir: string
   theme: string
+  autoAcceptTools?: string[]  // List of tool patterns to auto-accept (e.g., "Bash(git:*)", "Read", "Write")
 }
 
 interface StoredData {

@@ -160,7 +160,11 @@ ipcMain.handle('sessions:discover', (_, projectPath: string) => {
 // PTY management
 ipcMain.handle('pty:spawn', (_, { cwd, sessionId }: { cwd: string; sessionId?: string }) => {
   try {
-    const id = ptyManager.spawn(cwd, sessionId)
+    // Get auto-accept tools from settings
+    const settings = sessionStore.getSettings()
+    const autoAcceptTools = settings.autoAcceptTools
+
+    const id = ptyManager.spawn(cwd, sessionId, autoAcceptTools)
 
     ptyManager.onData(id, (data) => {
       mainWindow?.webContents.send(`pty:data:${id}`, data)

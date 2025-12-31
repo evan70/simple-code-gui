@@ -3,6 +3,7 @@ import { TitleBar } from './components/TitleBar'
 import { Sidebar } from './components/Sidebar'
 import { TerminalTabs } from './components/TerminalTabs'
 import { Terminal } from './components/Terminal'
+import { TiledTerminalView, TileLayout } from './components/TiledTerminalView'
 import { SettingsModal } from './components/SettingsModal'
 import { MakeProjectModal } from './components/MakeProjectModal'
 import { useWorkspaceStore, OpenTab } from './stores/workspace'
@@ -15,8 +16,8 @@ declare global {
       saveWorkspace: (workspace: any) => Promise<void>
       addProject: () => Promise<string | null>
       discoverSessions: (projectPath: string) => Promise<any[]>
-      getSettings: () => Promise<{ defaultProjectDir: string; theme: string }>
-      saveSettings: (settings: { defaultProjectDir: string; theme: string }) => Promise<void>
+      getSettings: () => Promise<{ defaultProjectDir: string; theme: string; autoAcceptTools?: string[] }>
+      saveSettings: (settings: { defaultProjectDir: string; theme: string; autoAcceptTools?: string[] }) => Promise<void>
       selectDirectory: () => Promise<string | null>
       createProject: (name: string, parentDir: string) => Promise<{ success: boolean; path?: string; error?: string }>
       selectExecutable: () => Promise<string | null>
@@ -80,6 +81,7 @@ function App() {
   const [makeProjectOpen, setMakeProjectOpen] = useState(false)
   const [currentTheme, setCurrentTheme] = useState<Theme>(themes[0])
   const [viewMode, setViewMode] = useState<'tabs' | 'tiled'>('tabs')
+  const [tileLayout, setTileLayout] = useState<TileLayout[]>([])
   const [lastFocusedTabId, setLastFocusedTabId] = useState<string | null>(null)
   const [claudeInstalled, setClaudeInstalled] = useState<boolean | null>(null)
   const [npmInstalled, setNpmInstalled] = useState<boolean | null>(null)
@@ -163,6 +165,14 @@ function App() {
             }
           }
         }
+
+        // Restore view mode and tile layout
+        if (workspace.viewMode) {
+          setViewMode(workspace.viewMode)
+        }
+        if (workspace.tileLayout) {
+          setTileLayout(workspace.tileLayout)
+        }
       } catch (e) {
         console.error('Failed to load workspace:', e)
       }
@@ -197,10 +207,12 @@ function App() {
           sessionId: t.sessionId,
           title: t.title
         })),
-        activeTabId
+        activeTabId,
+        viewMode,
+        tileLayout
       })
     }
-  }, [projects, openTabs, activeTabId, loading])
+  }, [projects, openTabs, activeTabId, loading, viewMode, tileLayout])
 
   const handleAddProject = useCallback(async () => {
     const path = await window.electronAPI.addProject()
@@ -436,30 +448,14 @@ function App() {
                 ))}
               </div>
             ) : (
-              <div className={`terminal-tiled terminal-tiled-${Math.min(openTabs.length, 4)}`}>
-                {openTabs.map((tab) => (
-                  <div key={tab.id} className="terminal-tile">
-                    <div className="tile-header">
-                      <span className="tile-title" title={tab.title}>{tab.title}</span>
-                      <button
-                        className="tile-close"
-                        onClick={() => handleCloseTab(tab.id)}
-                        title="Close"
-                      >
-                        ×
-                      </button>
-                    </div>
-                    <div className="tile-terminal">
-                      <Terminal
-                        ptyId={tab.id}
-                        isActive={true}
-                        theme={currentTheme}
-                        onFocus={() => setLastFocusedTabId(tab.id)}
-                      />
-                    </div>
-                  </div>
-                ))}
-              </div>
+              <TiledTerminalView
+                tabs={openTabs}
+                theme={currentTheme}
+                onCloseTab={handleCloseTab}
+                onFocusTab={setLastFocusedTabId}
+                layout={tileLayout}
+                onLayoutChange={setTileLayout}
+              />
             )}
           </>
         ) : (

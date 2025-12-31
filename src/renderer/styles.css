@@ -885,6 +885,59 @@ html, body, #root {
   padding: 4px;
 }
 
+/* Tile resize handles */
+.tile-resize-handle {
+  position: absolute;
+  background: transparent;
+  transition: background var(--transition-fast);
+  z-index: 10;
+}
+
+.tile-resize-handle:hover {
+  background: var(--accent);
+}
+
+.tile-resize-h {
+  right: 0;
+  top: 0;
+  width: 6px;
+  height: 100%;
+  cursor: ew-resize;
+}
+
+.tile-resize-v {
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  height: 6px;
+  cursor: ns-resize;
+}
+
+.tile-resize-corner {
+  right: 0;
+  bottom: 0;
+  width: 14px;
+  height: 14px;
+  cursor: nwse-resize;
+}
+
+.terminal-tile.dragging {
+  opacity: 0.5;
+}
+
+.terminal-tile.drop-target {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}
+
+.terminal-tiled-custom .tile-header {
+  cursor: grab;
+}
+
+.terminal-tiled-custom .tile-header:active {
+  cursor: grabbing;
+}
+
 .terminal-wrapper {
   position: absolute;
   top: 8px;
@@ -1349,7 +1402,12 @@ html, body, #root {
    ============================================ */
 
 .settings-modal {
-  width: 520px;
+  width: 560px;
+  max-height: 85vh;
+}
+
+.settings-modal .modal-content {
+  overflow-y: auto;
 }
 
 .theme-grid {
@@ -1422,6 +1480,88 @@ html, body, #root {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 100%;
+}
+
+/* Auto-accept tools UI */
+.tool-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  margin-top: var(--space-sm);
+}
+
+.tool-chip {
+  padding: var(--space-xs) var(--space-sm);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-secondary);
+  border-radius: var(--radius-full);
+  cursor: pointer;
+  font-size: 12px;
+  font-family: var(--font-mono);
+  transition: all var(--transition-fast);
+}
+
+.tool-chip:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+}
+
+.tool-chip.selected {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.custom-tool-input {
+  display: flex;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}
+
+.custom-tool-input input {
+  flex: 1;
+}
+
+.custom-tools-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-xs);
+  margin-top: var(--space-sm);
+}
+
+.custom-tool-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-xs);
+  padding: 2px 6px 2px 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-full);
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+
+.custom-tool-tag button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  border-radius: 50%;
+  font-size: 10px;
+  transition: all var(--transition-fast);
+}
+
+.custom-tool-tag button:hover {
+  background: var(--danger);
+  color: #fff;
 }
 
 /* ============================================
