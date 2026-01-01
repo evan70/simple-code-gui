@@ -584,7 +584,7 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
             {contextMenu.project.apiPort && <span className="menu-hint">:{contextMenu.project.apiPort}</span>}
           </button>
           <button onClick={() => handleConfigurePermissions(contextMenu.project)}>
-            <span className="icon">🔓</span> Permissions
+            <span className="icon">🔓</span> Per-Project Permissions
             {(contextMenu.project.autoAcceptTools?.length || contextMenu.project.permissionMode) && (
               <span className="menu-hint">configured</span>
             )}
@@ -679,13 +679,13 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
         <div className="modal-overlay" onClick={() => setPermissionsModal(null)}>
           <div className="modal permissions-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>Permissions: {permissionsModal.project.name}</h2>
+              <h2>Per-Project Permissions: {permissionsModal.project.name}</h2>
               <button className="modal-close" onClick={() => setPermissionsModal(null)}>×</button>
             </div>
             <div className="modal-content">
               <div className="form-group">
                 <label>Auto-Accept Tools</label>
-                <p className="form-hint">Select tools Claude can use without asking.</p>
+                <p className="form-hint">Overrides global settings for this project.</p>
                 <div className="tool-chips">
                   {COMMON_TOOLS.map((tool) => (
                     <button

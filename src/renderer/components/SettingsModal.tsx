@@ -157,9 +157,9 @@ export function SettingsModal({ isOpen, onClose, onThemeChange }: SettingsModalP
           </div>
 
           <div className="form-group">
-            <label>Auto-Accept Permissions</label>
+            <label>Global Permissions</label>
             <p className="form-hint">
-              Select tools that Claude can use without asking for permission.
+              Default permissions for all projects. Can be overridden per-project.
             </p>
             <div className="tool-chips">
               {COMMON_TOOLS.map((tool) => (
