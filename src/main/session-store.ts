@@ -9,6 +9,7 @@ export interface Project {
   apiPort?: number  // Port for HTTP API to send prompts to terminal
   autoAcceptTools?: string[]  // Per-project tool patterns to auto-accept
   permissionMode?: string     // Per-project permission mode
+  color?: string              // Project color for visual identification
 }
 
 export interface OpenTab {

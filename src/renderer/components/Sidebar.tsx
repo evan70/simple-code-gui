@@ -30,6 +30,22 @@ const PERMISSION_MODES = [
   { label: 'Bypass All', value: 'bypassPermissions', desc: 'Skip all checks' },
 ]
 
+const PROJECT_COLORS = [
+  { name: 'None', value: undefined },
+  { name: 'Red', value: '#ef4444' },
+  { name: 'Orange', value: '#f97316' },
+  { name: 'Amber', value: '#f59e0b' },
+  { name: 'Yellow', value: '#eab308' },
+  { name: 'Lime', value: '#84cc16' },
+  { name: 'Green', value: '#22c55e' },
+  { name: 'Teal', value: '#14b8a6' },
+  { name: 'Cyan', value: '#06b6d4' },
+  { name: 'Blue', value: '#3b82f6' },
+  { name: 'Indigo', value: '#6366f1' },
+  { name: 'Purple', value: '#a855f7' },
+  { name: 'Pink', value: '#ec4899' },
+]
+
 interface ClaudeSession {
   sessionId: string
   slug: string
@@ -54,13 +70,14 @@ interface SidebarProps {
   onOpenSettings: () => void
   onOpenMakeProject: () => void
   onUpdateProject: (path: string, updates: Partial<Project>) => void
+  onCloseProjectTabs: (projectPath: string) => void
   width: number
   collapsed: boolean
   onWidthChange: (width: number) => void
   onCollapsedChange: (collapsed: boolean) => void
 }
 
-export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onAddProject, onRemoveProject, onOpenSession, onSwitchToTab, onOpenSettings, onOpenMakeProject, onUpdateProject, width, collapsed, onWidthChange, onCollapsedChange }: SidebarProps) {
+export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onAddProject, onRemoveProject, onOpenSession, onSwitchToTab, onOpenSettings, onOpenMakeProject, onUpdateProject, onCloseProjectTabs, width, collapsed, onWidthChange, onCollapsedChange }: SidebarProps) {
   const [expandedProject, setExpandedProject] = useState<string | null>(null)
   const [sessions, setSessions] = useState<Record<string, ClaudeSession[]>>({})
   const [beadsExpanded, setBeadsExpanded] = useState(true)
@@ -384,7 +401,8 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
         {projects.map((project) => (
           <div key={project.path}>
             <div
-              className={`project-item ${expandedProject === project.path ? 'expanded' : ''} ${openTabs.some(t => t.projectPath === project.path) ? 'has-open-tab' : ''} ${project.executable ? 'has-executable' : ''}`}
+              className={`project-item ${expandedProject === project.path ? 'expanded' : ''} ${openTabs.some(t => t.projectPath === project.path) ? 'has-open-tab' : ''} ${project.executable ? 'has-executable' : ''} ${project.color ? 'has-color' : ''}`}
+              style={project.color ? { backgroundColor: `${project.color}20` } : undefined}
               onClick={() => openMostRecentSession(project.path)}
               onContextMenu={(e) => handleContextMenu(e, project)}
             >
@@ -429,6 +447,18 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
                   title={`Run: ${project.executable}`}
                 >
                   ▶
+                </button>
+              )}
+              {openTabs.some(t => t.projectPath === project.path) && (
+                <button
+                  className="close-project-btn"
+                  onClick={(e) => {
+                    e.stopPropagation()
+                    onCloseProjectTabs(project.path)
+                  }}
+                  title="Close all terminals for this project"
+                >
+                  ×
                 </button>
               )}
             </div>
@@ -559,6 +589,24 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
               <span className="menu-hint">configured</span>
             )}
           </button>
+          <div className="context-menu-divider" />
+          <div className="context-menu-label">Color</div>
+          <div className="color-picker-row">
+            {PROJECT_COLORS.map((color) => (
+              <button
+                key={color.name}
+                className={`color-swatch ${contextMenu.project.color === color.value ? 'selected' : ''} ${!color.value ? 'none' : ''}`}
+                style={color.value ? { backgroundColor: color.value } : undefined}
+                title={color.name}
+                onClick={() => {
+                  onUpdateProject(contextMenu.project.path, { color: color.value })
+                  setContextMenu(null)
+                }}
+              >
+                {!color.value && '✕'}
+              </button>
+            ))}
+          </div>
           <div className="context-menu-divider" />
           <button
             className="danger"

@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback, useRef } from 'react'
 import { TitleBar } from './components/TitleBar'
 import { Sidebar } from './components/Sidebar'
 import { TerminalTabs } from './components/TerminalTabs'
-import { Terminal } from './components/Terminal'
+import { Terminal, clearTerminalBuffer } from './components/Terminal'
 import { TiledTerminalView, TileLayout } from './components/TiledTerminalView'
 import { SettingsModal } from './components/SettingsModal'
 import { MakeProjectModal } from './components/MakeProjectModal'
@@ -76,6 +76,7 @@ function App() {
     updateProject,
     addTab,
     removeTab,
+    updateTab,
     setActiveTab,
     clearTabs
   } = useWorkspaceStore()
@@ -124,10 +125,11 @@ function App() {
         applyTheme(theme)
         setCurrentTheme(theme)
 
-        // Kill any existing PTYs from hot reload
+        // Kill any existing PTYs from hot reload (but don't clear buffers - they'll be restored)
         const existingTabs = useWorkspaceStore.getState().openTabs
         for (const tab of existingTabs) {
           window.electronAPI.killPty(tab.id)
+          // Note: Don't clear buffers here - they're used for HMR recovery
         }
         clearTabs()
 
@@ -137,6 +139,9 @@ function App() {
         }
 
         // Restore previously open tabs (only if not already open)
+        // Track old ID -> new ID mapping for layout restoration
+        const idMapping = new Map<string, string>()
+
         if (workspace.openTabs && workspace.openTabs.length > 0) {
           const currentTabs = useWorkspaceStore.getState().openTabs
           const openSessionIds = new Set(currentTabs.map(t => t.sessionId).filter(Boolean))
@@ -153,6 +158,10 @@ function App() {
                 savedTab.projectPath,
                 savedTab.sessionId
               )
+              // Map old tab ID to new ptyId for layout restoration
+              if (savedTab.id) {
+                idMapping.set(savedTab.id, ptyId)
+              }
               addTab({
                 id: ptyId,
                 projectPath: savedTab.projectPath,
@@ -174,8 +183,19 @@ function App() {
         if (workspace.viewMode) {
           setViewMode(workspace.viewMode)
         }
-        if (workspace.tileLayout) {
-          setTileLayout(workspace.tileLayout)
+        if (workspace.tileLayout && workspace.tileLayout.length > 0) {
+          // Remap old IDs to new IDs
+          const remappedLayout = workspace.tileLayout
+            .map((tile: any) => ({
+              ...tile,
+              id: idMapping.get(tile.id) || tile.id
+            }))
+            .filter((tile: any) => {
+              // Only keep tiles that have a valid new ID
+              const newTabs = useWorkspaceStore.getState().openTabs
+              return newTabs.some(t => t.id === tile.id)
+            })
+          setTileLayout(remappedLayout)
         }
       } catch (e) {
         console.error('Failed to load workspace:', e)
@@ -217,6 +237,37 @@ function App() {
       })
     }
   }, [projects, openTabs, activeTabId, loading, viewMode, tileLayout])
+
+  // Poll for session IDs on tabs that don't have one
+  useEffect(() => {
+    const tabsWithoutSession = openTabs.filter(t => !t.sessionId)
+    if (tabsWithoutSession.length === 0) return
+
+    const pollInterval = setInterval(async () => {
+      for (const tab of tabsWithoutSession) {
+        try {
+          const sessions = await window.electronAPI.discoverSessions(tab.projectPath)
+          if (sessions.length > 0) {
+            // Get the most recent session
+            const mostRecent = sessions[0]
+            // Check if we already have this session in another tab
+            const alreadyOpen = openTabs.some(t => t.id !== tab.id && t.sessionId === mostRecent.sessionId)
+            if (!alreadyOpen) {
+              const projectName = tab.projectPath.split(/[/\\]/).pop() || tab.projectPath
+              updateTab(tab.id, {
+                sessionId: mostRecent.sessionId,
+                title: `${projectName} - ${mostRecent.slug}`
+              })
+            }
+          }
+        } catch (e) {
+          console.error('Failed to discover sessions for tab:', e)
+        }
+      }
+    }, 3000) // Poll every 3 seconds
+
+    return () => clearInterval(pollInterval)
+  }, [openTabs, updateTab])
 
   const handleAddProject = useCallback(async () => {
     const path = await window.electronAPI.addProject()
@@ -260,8 +311,18 @@ function App() {
 
   const handleCloseTab = useCallback((tabId: string) => {
     window.electronAPI.killPty(tabId)
+    clearTerminalBuffer(tabId)
     removeTab(tabId)
   }, [removeTab])
+
+  const handleCloseProjectTabs = useCallback((projectPath: string) => {
+    const tabsToClose = openTabs.filter(tab => tab.projectPath === projectPath)
+    tabsToClose.forEach(tab => {
+      window.electronAPI.killPty(tab.id)
+      clearTerminalBuffer(tab.id)
+      removeTab(tab.id)
+    })
+  }, [openTabs, removeTab])
 
   const handleProjectCreated = useCallback((projectPath: string, projectName: string) => {
     addProject({ path: projectPath, name: projectName })
@@ -357,6 +418,7 @@ function App() {
         onOpenSettings={() => setSettingsOpen(true)}
         onOpenMakeProject={() => setMakeProjectOpen(true)}
         onUpdateProject={updateProject}
+        onCloseProjectTabs={handleCloseProjectTabs}
         width={sidebarWidth}
         collapsed={sidebarCollapsed}
         onWidthChange={setSidebarWidth}
@@ -454,6 +516,7 @@ function App() {
             ) : (
               <TiledTerminalView
                 tabs={openTabs}
+                projects={projects}
                 theme={currentTheme}
                 onCloseTab={handleCloseTab}
                 onFocusTab={setLastFocusedTabId}

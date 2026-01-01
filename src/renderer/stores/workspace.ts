@@ -7,6 +7,7 @@ export interface Project {
   apiPort?: number
   autoAcceptTools?: string[]
   permissionMode?: string
+  color?: string
 }
 
 export interface OpenTab {
@@ -29,6 +30,7 @@ interface WorkspaceState {
 
   addTab: (tab: OpenTab) => void
   removeTab: (id: string) => void
+  updateTab: (id: string, updates: Partial<OpenTab>) => void
   setActiveTab: (id: string) => void
   clearTabs: () => void
 }
@@ -84,6 +86,15 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
     }
 
     set({ openTabs: newTabs, activeTabId: newActiveId })
+  },
+
+  updateTab: (id, updates) => {
+    const { openTabs } = get()
+    set({
+      openTabs: openTabs.map((t) =>
+        t.id === id ? { ...t, ...updates } : t
+      )
+    })
   },
 
   setActiveTab: (id) => set({ activeTabId: id }),

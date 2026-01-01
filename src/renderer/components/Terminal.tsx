@@ -4,6 +4,24 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { Theme } from '../themes'
 
+// Global buffer to persist terminal data across HMR remounts
+// Use window to persist across module re-execution during HMR
+const BUFFER_KEY = '__TERMINAL_BUFFERS__'
+const MAX_BUFFER_CHUNKS = 5000 // Limit buffer size to prevent memory issues
+
+// Get or create the global buffer map (survives HMR)
+function getTerminalBuffers(): Map<string, string[]> {
+  if (!(window as any)[BUFFER_KEY]) {
+    (window as any)[BUFFER_KEY] = new Map<string, string[]>()
+  }
+  return (window as any)[BUFFER_KEY]
+}
+
+// Clear buffer for a specific terminal (call when tab is closed)
+export function clearTerminalBuffer(ptyId: string) {
+  getTerminalBuffers().delete(ptyId)
+}
+
 // Debug flag - set to true to log scroll events
 const DEBUG_SCROLL = false
 
@@ -103,6 +121,22 @@ export function Terminal({ ptyId, isActive, theme, onFocus }: TerminalProps) {
 
     terminalRef.current = terminal
     fitAddonRef.current = fitAddon
+
+    // Initialize buffer for this ptyId if not exists
+    const terminalBuffers = getTerminalBuffers()
+    if (!terminalBuffers.has(ptyId)) {
+      terminalBuffers.set(ptyId, [])
+    }
+
+    // Replay buffered content on mount (for HMR recovery)
+    const buffer = terminalBuffers.get(ptyId)!
+    if (buffer.length > 0) {
+      // Write all buffered data to restore terminal state
+      for (const chunk of buffer) {
+        terminal.write(chunk)
+      }
+      terminal.scrollToBottom()
+    }
 
     // Helper to check if terminal is at bottom
     const isAtBottom = () => {
@@ -213,6 +247,16 @@ export function Terminal({ ptyId, isActive, theme, onFocus }: TerminalProps) {
     // Handle PTY output - always scroll to bottom unless user explicitly scrolled up
     let firstData = true
     const cleanupData = window.electronAPI.onPtyData(ptyId, (data) => {
+      // Store data in buffer for HMR recovery
+      const buf = getTerminalBuffers().get(ptyId)
+      if (buf) {
+        buf.push(data)
+        // Limit buffer size to prevent memory bloat
+        while (buf.length > MAX_BUFFER_CHUNKS) {
+          buf.shift()
+        }
+      }
+
       terminal.write(data)
 
       // Always scroll to bottom unless user has scrolled up
@@ -230,6 +274,11 @@ export function Terminal({ ptyId, isActive, theme, onFocus }: TerminalProps) {
     // Handle PTY exit
     const cleanupExit = window.electronAPI.onPtyExit(ptyId, (code) => {
       terminal.write(`\r\n\x1b[90m[Process exited with code ${code}]\x1b[0m\r\n`)
+      // Store exit message in buffer too (in case of HMR during exit)
+      const buf = getTerminalBuffers().get(ptyId)
+      if (buf) {
+        buf.push(`\r\n\x1b[90m[Process exited with code ${code}]\x1b[0m\r\n`)
+      }
     })
 
     // Handle resize - stay at bottom unless user scrolled up
