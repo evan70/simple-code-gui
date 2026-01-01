@@ -5,6 +5,8 @@ export interface Project {
   name: string
   executable?: string
   apiPort?: number
+  apiSessionMode?: 'existing' | 'new-keep' | 'new-close'
+  apiModel?: 'default' | 'opus' | 'sonnet' | 'haiku'
   autoAcceptTools?: string[]
   permissionMode?: string
   color?: string

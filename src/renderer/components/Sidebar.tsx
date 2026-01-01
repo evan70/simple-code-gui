@@ -30,6 +30,19 @@ const PERMISSION_MODES = [
   { label: 'Bypass All', value: 'bypassPermissions', desc: 'Skip all checks' },
 ]
 
+const API_SESSION_MODES = [
+  { label: 'Existing', value: 'existing', desc: 'Use existing session' },
+  { label: 'New (Keep)', value: 'new-keep', desc: 'New session, keep open' },
+  { label: 'New (Close)', value: 'new-close', desc: 'New session, auto-close' },
+]
+
+const API_MODELS = [
+  { label: 'Default', value: 'default', desc: 'Use default model' },
+  { label: 'Opus', value: 'opus', desc: 'Most capable' },
+  { label: 'Sonnet', value: 'sonnet', desc: 'Balanced' },
+  { label: 'Haiku', value: 'haiku', desc: 'Fast & cheap' },
+]
+
 const PROJECT_COLORS = [
   { name: 'None', value: undefined },
   { name: 'Red', value: '#ef4444' },
@@ -83,8 +96,16 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
   const [beadsExpanded, setBeadsExpanded] = useState(true)
   const [isResizing, setIsResizing] = useState(false)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; project: Project } | null>(null)
-  const [apiPortModal, setApiPortModal] = useState<{ project: Project; currentPort: string; status?: 'checking' | 'success' | 'error'; error?: string } | null>(null)
-  const [permissionsModal, setPermissionsModal] = useState<{ project: Project; tools: string[]; mode: string } | null>(null)
+  const [projectSettingsModal, setProjectSettingsModal] = useState<{
+    project: Project
+    apiPort: string
+    apiSessionMode: 'existing' | 'new-keep' | 'new-close'
+    apiModel: 'default' | 'opus' | 'sonnet' | 'haiku'
+    tools: string[]
+    permissionMode: string
+    apiStatus?: 'checking' | 'success' | 'error'
+    apiError?: string
+  } | null>(null)
   const [globalPermissions, setGlobalPermissions] = useState<{ tools: string[]; mode: string }>({ tools: [], mode: 'default' })
   const [apiStatus, setApiStatus] = useState<Record<string, { running: boolean; port?: number }>>({})
   const [editingProject, setEditingProject] = useState<{ path: string; name: string } | null>(null)
@@ -198,46 +219,67 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
     }
   }, [contextMenu])
 
-  const handleConfigureApi = (project: Project) => {
-    setApiPortModal({ project, currentPort: project.apiPort?.toString() || '' })
+  const handleOpenProjectSettings = async (project: Project) => {
+    // Fetch global settings to show comparison
+    const settings = await window.electronAPI.getSettings()
+    setGlobalPermissions({
+      tools: settings.autoAcceptTools || [],
+      mode: settings.permissionMode || 'default'
+    })
+    setProjectSettingsModal({
+      project,
+      apiPort: project.apiPort?.toString() || '',
+      apiSessionMode: project.apiSessionMode || 'existing',
+      apiModel: project.apiModel || 'default',
+      tools: project.autoAcceptTools || [],
+      permissionMode: project.permissionMode || 'default'
+    })
     setContextMenu(null)
   }
 
-  const handleSaveApiPort = async () => {
-    if (!apiPortModal) return
-    const port = parseInt(apiPortModal.currentPort, 10)
+  const handleSaveProjectSettings = async () => {
+    if (!projectSettingsModal) return
 
-    if (apiPortModal.currentPort && (isNaN(port) || port < 1024 || port > 65535)) {
-      setApiPortModal({ ...apiPortModal, status: 'error', error: 'Please enter a valid port number (1024-65535)' })
+    const port = parseInt(projectSettingsModal.apiPort, 10)
+    const hasPortValue = projectSettingsModal.apiPort.trim() !== ''
+
+    // Validate port if provided
+    if (hasPortValue && (isNaN(port) || port < 1024 || port > 65535)) {
+      setProjectSettingsModal({ ...projectSettingsModal, apiStatus: 'error', apiError: 'Please enter a valid port number (1024-65535)' })
       return
     }
 
-    const newPort = apiPortModal.currentPort ? port : undefined
+    const newPort = hasPortValue ? port : undefined
+    const oldPort = projectSettingsModal.project.apiPort
 
-    if (!newPort) {
-      // Just clearing the port, stop server and close
-      await window.electronAPI.apiStop(apiPortModal.project.path)
-      onUpdateProject(apiPortModal.project.path, { apiPort: undefined })
-      setApiPortModal(null)
-      return
+    // Handle API server changes
+    if (newPort !== oldPort) {
+      if (!newPort) {
+        // Clearing the port, stop server
+        await window.electronAPI.apiStop(projectSettingsModal.project.path)
+        setApiStatus(prev => ({ ...prev, [projectSettingsModal.project.path]: { running: false } }))
+      } else {
+        // New port, try to start server
+        setProjectSettingsModal({ ...projectSettingsModal, apiStatus: 'checking' })
+        const result = await window.electronAPI.apiStart(projectSettingsModal.project.path, newPort)
+        if (!result.success) {
+          setProjectSettingsModal({ ...projectSettingsModal, apiStatus: 'error', apiError: result.error || 'Port may already be in use' })
+          return
+        }
+        setApiStatus(prev => ({ ...prev, [projectSettingsModal.project.path]: { running: true, port: newPort } }))
+      }
     }
 
-    // Test if port is available by trying to start the server
-    setApiPortModal({ ...apiPortModal, status: 'checking' })
+    // Save all settings
+    onUpdateProject(projectSettingsModal.project.path, {
+      apiPort: newPort,
+      apiSessionMode: projectSettingsModal.apiSessionMode !== 'existing' ? projectSettingsModal.apiSessionMode : undefined,
+      apiModel: projectSettingsModal.apiModel !== 'default' ? projectSettingsModal.apiModel : undefined,
+      autoAcceptTools: projectSettingsModal.tools.length > 0 ? projectSettingsModal.tools : undefined,
+      permissionMode: projectSettingsModal.permissionMode !== 'default' ? projectSettingsModal.permissionMode : undefined
+    })
 
-    const result = await window.electronAPI.apiStart(apiPortModal.project.path, newPort)
-    if (!result.success) {
-      setApiPortModal({ ...apiPortModal, status: 'error', error: result.error || 'Port may already be in use' })
-      return
-    }
-
-    // Success - save the port and show checkmark briefly
-    onUpdateProject(apiPortModal.project.path, { apiPort: newPort })
-    setApiStatus(prev => ({ ...prev, [apiPortModal.project.path]: { running: true, port: newPort } }))
-    setApiPortModal({ ...apiPortModal, status: 'success' })
-
-    // Close modal after showing success
-    setTimeout(() => setApiPortModal(null), 800)
+    setProjectSettingsModal(null)
   }
 
   const handleToggleApi = async (project: Project) => {
@@ -256,47 +298,23 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
     setContextMenu(null)
   }
 
-  const handleConfigurePermissions = async (project: Project) => {
-    // Fetch global settings to show comparison
-    const settings = await window.electronAPI.getSettings()
-    setGlobalPermissions({
-      tools: settings.autoAcceptTools || [],
-      mode: settings.permissionMode || 'default'
-    })
-    setPermissionsModal({
-      project,
-      tools: project.autoAcceptTools || [],
-      mode: project.permissionMode || 'default'
-    })
-    setContextMenu(null)
-  }
-
-  const handleSavePermissions = () => {
-    if (!permissionsModal) return
-    onUpdateProject(permissionsModal.project.path, {
-      autoAcceptTools: permissionsModal.tools.length > 0 ? permissionsModal.tools : undefined,
-      permissionMode: permissionsModal.mode !== 'default' ? permissionsModal.mode : undefined
-    })
-    setPermissionsModal(null)
-  }
-
   const togglePermissionTool = (tool: string) => {
-    if (!permissionsModal) return
-    const newTools = permissionsModal.tools.includes(tool)
-      ? permissionsModal.tools.filter(t => t !== tool)
-      : [...permissionsModal.tools, tool]
-    setPermissionsModal({ ...permissionsModal, tools: newTools })
+    if (!projectSettingsModal) return
+    const newTools = projectSettingsModal.tools.includes(tool)
+      ? projectSettingsModal.tools.filter(t => t !== tool)
+      : [...projectSettingsModal.tools, tool]
+    setProjectSettingsModal({ ...projectSettingsModal, tools: newTools })
   }
 
   const handleAllowAll = () => {
-    if (!permissionsModal) return
+    if (!projectSettingsModal) return
     const allTools = COMMON_TOOLS.map(t => t.value)
-    setPermissionsModal({ ...permissionsModal, tools: allTools, mode: 'bypassPermissions' })
+    setProjectSettingsModal({ ...projectSettingsModal, tools: allTools, permissionMode: 'bypassPermissions' })
   }
 
   const handleClearAll = () => {
-    if (!permissionsModal) return
-    setPermissionsModal({ ...permissionsModal, tools: [], mode: 'default' })
+    if (!projectSettingsModal) return
+    setProjectSettingsModal({ ...projectSettingsModal, tools: [], permissionMode: 'default' })
   }
 
   // Check API status for focused project
@@ -531,13 +549,13 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
                 className={`sidebar-btn api-toggle ${status?.running ? 'running' : ''}`}
                 onClick={() => {
                   if (!hasPort) {
-                    // No port configured, open configuration modal
-                    setApiPortModal({ project: focusedProject, currentPort: '' })
+                    // No port configured, open project settings
+                    handleOpenProjectSettings(focusedProject)
                   } else {
                     handleToggleApi(focusedProject)
                   }
                 }}
-                title={status?.running ? `Stop API Server (port ${focusedProject.apiPort})` : hasPort ? `Start API Server (port ${focusedProject.apiPort})` : 'Configure API Port'}
+                title={status?.running ? `Stop API Server (port ${focusedProject.apiPort})` : hasPort ? `Start API Server (port ${focusedProject.apiPort})` : 'Configure API'}
               >
                 <span className="icon">{status?.running ? '⏹' : '🔌'}</span>
                 {status?.running ? `API :${focusedProject.apiPort}` : hasPort ? 'Start API' : 'API'}
@@ -586,13 +604,9 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
             </button>
           )}
           <div className="context-menu-divider" />
-          <button onClick={() => handleConfigureApi(contextMenu.project)}>
-            <span className="icon">🔌</span> Configure API Port
-            {contextMenu.project.apiPort && <span className="menu-hint">:{contextMenu.project.apiPort}</span>}
-          </button>
-          <button onClick={() => handleConfigurePermissions(contextMenu.project)}>
-            <span className="icon">🔓</span> Per-Project Permissions
-            {(contextMenu.project.autoAcceptTools?.length || contextMenu.project.permissionMode) && (
+          <button onClick={() => handleOpenProjectSettings(contextMenu.project)}>
+            <span className="icon">⚙</span> Project Settings
+            {(contextMenu.project.apiPort || contextMenu.project.autoAcceptTools?.length || contextMenu.project.permissionMode) && (
               <span className="menu-hint">configured</span>
             )}
           </button>
@@ -628,130 +642,158 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
         document.body
       )}
 
-      {/* API Port Modal - rendered via portal */}
-      {apiPortModal && ReactDOM.createPortal(
-        <div className="modal-overlay" onClick={() => !apiPortModal.status && setApiPortModal(null)}>
-          <div className="modal api-port-modal" onClick={(e) => e.stopPropagation()}>
-            {apiPortModal.status === 'success' ? (
-              <div className="modal-success">
-                <span className="success-icon">✓</span>
-                <p>API Server started on port {apiPortModal.currentPort}</p>
-              </div>
-            ) : (
-              <>
-                <div className="modal-header">
-                  <h2>Configure API Port</h2>
-                  <button className="modal-close" onClick={() => setApiPortModal(null)}>×</button>
-                </div>
-                <div className="modal-content">
-                  <p className="form-hint">
-                    Set a port to enable HTTP API for sending prompts to this project's terminal.
-                  </p>
-                  <div className="form-group">
-                    <label>Port Number</label>
-                    <input
-                      type="number"
-                      min="1024"
-                      max="65535"
-                      value={apiPortModal.currentPort}
-                      onChange={(e) => setApiPortModal({ ...apiPortModal, currentPort: e.target.value, status: undefined, error: undefined })}
-                      placeholder="e.g., 3001"
-                      autoFocus
-                      disabled={apiPortModal.status === 'checking'}
-                      className={apiPortModal.status === 'error' ? 'input-error' : ''}
-                    />
-                    {apiPortModal.status === 'error' && (
-                      <p className="error-message">{apiPortModal.error}</p>
-                    )}
-                  </div>
-                  <p className="form-hint api-usage">
-                    Usage: <code>curl -X POST http://localhost:{apiPortModal.currentPort || '3001'}/prompt -d '{`{"prompt":"your message"}`}'</code>
-                  </p>
-                </div>
-                <div className="modal-footer">
-                  <button className="btn-secondary" onClick={() => setApiPortModal(null)} disabled={apiPortModal.status === 'checking'}>Cancel</button>
-                  <button className="btn-primary" onClick={handleSaveApiPort} disabled={apiPortModal.status === 'checking'}>
-                    {apiPortModal.status === 'checking' ? 'Checking...' : 'Save & Start'}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>,
-        document.body
-      )}
-
-      {/* Permissions Modal - rendered via portal */}
-      {permissionsModal && ReactDOM.createPortal(
-        <div className="modal-overlay" onClick={() => setPermissionsModal(null)}>
-          <div className="modal permissions-modal" onClick={(e) => e.stopPropagation()}>
+      {/* Project Settings Modal - rendered via portal */}
+      {projectSettingsModal && ReactDOM.createPortal(
+        <div className="modal-overlay" onClick={() => !projectSettingsModal.apiStatus && setProjectSettingsModal(null)}>
+          <div className="modal project-settings-modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
-              <h2>Per-Project Permissions: {permissionsModal.project.name}</h2>
-              <button className="modal-close" onClick={() => setPermissionsModal(null)}>×</button>
+              <h2>Project Settings: {projectSettingsModal.project.name}</h2>
+              <button className="modal-close" onClick={() => setProjectSettingsModal(null)}>×</button>
             </div>
             <div className="modal-content">
-              <div className="form-group">
-                <label>Auto-Accept Tools</label>
-                <p className="form-hint">Overrides global settings for this project.</p>
-                <div className="tool-chips">
-                  {COMMON_TOOLS.map((tool) => {
-                    const isProjectSelected = permissionsModal.tools.includes(tool.value)
-                    const isGlobalSelected = globalPermissions.tools.includes(tool.value)
-                    return (
-                      <button
-                        key={tool.value}
-                        className={`tool-chip ${isProjectSelected ? 'selected' : ''} ${isGlobalSelected && !isProjectSelected ? 'global' : ''}`}
-                        onClick={() => togglePermissionTool(tool.value)}
-                        title={`${tool.value}${isGlobalSelected ? ' (enabled in global settings)' : ''}`}
-                      >
-                        {tool.label}
-                        {isGlobalSelected && !isProjectSelected && <span className="global-indicator">G</span>}
-                      </button>
-                    )
-                  })}
-                </div>
-              </div>
+              {/* API Settings Section */}
+              <div className="settings-section">
+                <h3>API Settings</h3>
+                <p className="form-hint">Enable HTTP API to send prompts to this project's terminal.</p>
 
-              <div className="form-group">
-                <label>Permission Mode</label>
-                {globalPermissions.mode !== 'default' && permissionsModal.mode === 'default' && (
-                  <p className="form-hint global-hint">
-                    Global: {PERMISSION_MODES.find(m => m.value === globalPermissions.mode)?.label}
-                  </p>
-                )}
-                <div className="permission-mode-options compact">
-                  {PERMISSION_MODES.map((mode) => {
-                    const isGlobalMode = globalPermissions.mode === mode.value && permissionsModal.mode === 'default'
-                    return (
-                      <label key={mode.value} className={`permission-mode-option ${permissionsModal.mode === mode.value ? 'selected' : ''} ${isGlobalMode ? 'global' : ''}`}>
+                <div className="form-group">
+                  <label>Port Number</label>
+                  <input
+                    type="number"
+                    min="1024"
+                    max="65535"
+                    value={projectSettingsModal.apiPort}
+                    onChange={(e) => setProjectSettingsModal({ ...projectSettingsModal, apiPort: e.target.value, apiStatus: undefined, apiError: undefined })}
+                    placeholder="e.g., 3001 (leave empty to disable)"
+                    disabled={projectSettingsModal.apiStatus === 'checking'}
+                    className={projectSettingsModal.apiStatus === 'error' ? 'input-error' : ''}
+                  />
+                  {projectSettingsModal.apiStatus === 'error' && (
+                    <p className="error-message">{projectSettingsModal.apiError}</p>
+                  )}
+                </div>
+
+                <div className="form-group">
+                  <label>Session Mode</label>
+                  <p className="form-hint">How API requests handle terminal sessions.</p>
+                  <div className={`session-mode-options ${!projectSettingsModal.apiPort ? 'disabled' : ''}`}>
+                    {API_SESSION_MODES.map((mode) => (
+                      <label key={mode.value} className={`session-mode-option ${projectSettingsModal.apiSessionMode === mode.value ? 'selected' : ''}`}>
                         <input
                           type="radio"
-                          name="permissionMode"
+                          name="apiSessionMode"
                           value={mode.value}
-                          checked={permissionsModal.mode === mode.value}
-                          onChange={(e) => setPermissionsModal({ ...permissionsModal, mode: e.target.value })}
+                          checked={projectSettingsModal.apiSessionMode === mode.value}
+                          onChange={(e) => setProjectSettingsModal({ ...projectSettingsModal, apiSessionMode: e.target.value as 'existing' | 'new-keep' | 'new-close' })}
+                          disabled={!projectSettingsModal.apiPort}
                         />
                         <span className="mode-label">{mode.label}</span>
                         <span className="mode-desc">{mode.desc}</span>
-                        {isGlobalMode && <span className="global-indicator">G</span>}
                       </label>
-                    )
-                  })}
+                    ))}
+                  </div>
                 </div>
+
+                {/* Model selection - only for new session modes */}
+                {projectSettingsModal.apiSessionMode !== 'existing' && (
+                  <div className="form-group">
+                    <label>API Session Model</label>
+                    <p className="form-hint">Model for API-triggered sessions. Use cheaper models for automated workflows.</p>
+                    <div className={`session-mode-options ${!projectSettingsModal.apiPort ? 'disabled' : ''}`}>
+                      {API_MODELS.map((model) => (
+                        <label key={model.value} className={`session-mode-option ${projectSettingsModal.apiModel === model.value ? 'selected' : ''}`}>
+                          <input
+                            type="radio"
+                            name="apiModel"
+                            value={model.value}
+                            checked={projectSettingsModal.apiModel === model.value}
+                            onChange={(e) => setProjectSettingsModal({ ...projectSettingsModal, apiModel: e.target.value as 'default' | 'opus' | 'sonnet' | 'haiku' })}
+                            disabled={!projectSettingsModal.apiPort}
+                          />
+                          <span className="mode-label">{model.label}</span>
+                          <span className="mode-desc">{model.desc}</span>
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {projectSettingsModal.apiPort && (
+                  <p className="form-hint api-usage">
+                    Usage: <code>curl -X POST http://localhost:{projectSettingsModal.apiPort}/prompt -d '{`{"prompt":"..."}`}'</code>
+                  </p>
+                )}
               </div>
 
-              <div className="permission-quick-actions">
-                <button className="btn-danger-outline" onClick={handleAllowAll}>
-                  ⚠️ Allow All (Not Recommended)
-                </button>
-                <button className="btn-secondary" onClick={handleClearAll}>
-                  Clear All
-                </button>
+              {/* Permissions Section */}
+              <div className="settings-section">
+                <h3>Permissions</h3>
+                <p className="form-hint">Override global permission settings for this project.</p>
+
+                <div className="form-group">
+                  <label>Auto-Accept Tools</label>
+                  <div className="tool-chips">
+                    {COMMON_TOOLS.map((tool) => {
+                      const isProjectSelected = projectSettingsModal.tools.includes(tool.value)
+                      const isGlobalSelected = globalPermissions.tools.includes(tool.value)
+                      return (
+                        <button
+                          key={tool.value}
+                          className={`tool-chip ${isProjectSelected ? 'selected' : ''} ${isGlobalSelected && !isProjectSelected ? 'global' : ''}`}
+                          onClick={() => togglePermissionTool(tool.value)}
+                          title={`${tool.value}${isGlobalSelected ? ' (enabled in global settings)' : ''}`}
+                        >
+                          {tool.label}
+                          {isGlobalSelected && !isProjectSelected && <span className="global-indicator">G</span>}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label>Permission Mode</label>
+                  {globalPermissions.mode !== 'default' && projectSettingsModal.permissionMode === 'default' && (
+                    <p className="form-hint global-hint">
+                      Global: {PERMISSION_MODES.find(m => m.value === globalPermissions.mode)?.label}
+                    </p>
+                  )}
+                  <div className="permission-mode-options compact">
+                    {PERMISSION_MODES.map((mode) => {
+                      const isGlobalMode = globalPermissions.mode === mode.value && projectSettingsModal.permissionMode === 'default'
+                      return (
+                        <label key={mode.value} className={`permission-mode-option ${projectSettingsModal.permissionMode === mode.value ? 'selected' : ''} ${isGlobalMode ? 'global' : ''}`}>
+                          <input
+                            type="radio"
+                            name="permissionMode"
+                            value={mode.value}
+                            checked={projectSettingsModal.permissionMode === mode.value}
+                            onChange={(e) => setProjectSettingsModal({ ...projectSettingsModal, permissionMode: e.target.value })}
+                          />
+                          <span className="mode-label">{mode.label}</span>
+                          <span className="mode-desc">{mode.desc}</span>
+                          {isGlobalMode && <span className="global-indicator">G</span>}
+                        </label>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div className="permission-quick-actions">
+                  <button className="btn-danger-outline" onClick={handleAllowAll}>
+                    Allow All
+                  </button>
+                  <button className="btn-secondary" onClick={handleClearAll}>
+                    Clear All
+                  </button>
+                </div>
               </div>
             </div>
             <div className="modal-footer">
-              <button className="btn-secondary" onClick={() => setPermissionsModal(null)}>Cancel</button>
-              <button className="btn-primary" onClick={handleSavePermissions}>Save</button>
+              <button className="btn-secondary" onClick={() => setProjectSettingsModal(null)} disabled={projectSettingsModal.apiStatus === 'checking'}>Cancel</button>
+              <button className="btn-primary" onClick={handleSaveProjectSettings} disabled={projectSettingsModal.apiStatus === 'checking'}>
+                {projectSettingsModal.apiStatus === 'checking' ? 'Checking...' : 'Save'}
+              </button>
             </div>
           </div>
         </div>,

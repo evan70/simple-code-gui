@@ -6,14 +6,30 @@ interface ApiServer {
   projectPath: string
 }
 
-type PromptHandler = (projectPath: string, prompt: string) => boolean
+export type SessionMode = 'existing' | 'new-keep' | 'new-close'
+
+export interface PromptResult {
+  success: boolean
+  message?: string
+  error?: string
+  sessionCreated?: boolean
+}
+
+type PromptHandler = (projectPath: string, prompt: string, sessionMode: SessionMode) => Promise<PromptResult>
+
+type SessionModeGetter = (projectPath: string) => SessionMode
 
 export class ApiServerManager {
   private servers: Map<string, ApiServer> = new Map() // projectPath -> server
   private promptHandler: PromptHandler | null = null
+  private sessionModeGetter: SessionModeGetter | null = null
 
   setPromptHandler(handler: PromptHandler) {
     this.promptHandler = handler
+  }
+
+  setSessionModeGetter(getter: SessionModeGetter) {
+    this.sessionModeGetter = getter
   }
 
   start(projectPath: string, port: number): { success: boolean; error?: string } {
@@ -43,7 +59,7 @@ export class ApiServerManager {
         if (req.method === 'POST' && req.url === '/prompt') {
           let body = ''
           req.on('data', chunk => { body += chunk })
-          req.on('end', () => {
+          req.on('end', async () => {
             try {
               const data = JSON.parse(body)
               const prompt = data.prompt || data.message || data.text || ''
@@ -55,13 +71,22 @@ export class ApiServerManager {
               }
 
               if (this.promptHandler) {
-                const sent = this.promptHandler(projectPath, prompt)
-                if (sent) {
-                  res.writeHead(200, { 'Content-Type': 'application/json' })
-                  res.end(JSON.stringify({ success: true, message: 'Prompt sent to terminal' }))
-                } else {
-                  res.writeHead(404, { 'Content-Type': 'application/json' })
-                  res.end(JSON.stringify({ success: false, error: 'No active terminal for this project' }))
+                // Get session mode from project settings or request body
+                const requestedMode = data.sessionMode as SessionMode | undefined
+                const sessionMode = requestedMode || this.sessionModeGetter?.(projectPath) || 'existing'
+
+                try {
+                  const result = await this.promptHandler(projectPath, prompt, sessionMode)
+                  if (result.success) {
+                    res.writeHead(200, { 'Content-Type': 'application/json' })
+                    res.end(JSON.stringify(result))
+                  } else {
+                    res.writeHead(404, { 'Content-Type': 'application/json' })
+                    res.end(JSON.stringify(result))
+                  }
+                } catch (handlerError: any) {
+                  res.writeHead(500, { 'Content-Type': 'application/json' })
+                  res.end(JSON.stringify({ success: false, error: handlerError.message || 'Handler error' }))
                 }
               } else {
                 res.writeHead(500, { 'Content-Type': 'application/json' })

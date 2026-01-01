@@ -18,7 +18,7 @@ if (process.platform === 'linux') {
 import { PtyManager } from './pty-manager'
 import { SessionStore } from './session-store'
 import { discoverSessions } from './session-discovery'
-import { ApiServerManager } from './api-server'
+import { ApiServerManager, SessionMode, PromptResult } from './api-server'
 import { isWindows, getDefaultShell, getEnhancedPath, getEnhancedPathWithPortable, setPortableBinDirs } from './platform'
 import {
   checkDeps,
@@ -56,17 +56,70 @@ const apiServerManager = new ApiServerManager()
 // Track which PTY belongs to which project
 const ptyToProject: Map<string, string> = new Map()  // ptyId -> projectPath
 
+// Track pending API prompts waiting for a new session to be created
+interface PendingApiPrompt {
+  prompt: string
+  resolve: (result: PromptResult) => void
+  autoClose: boolean
+  model?: string
+}
+const pendingApiPrompts: Map<string, PendingApiPrompt> = new Map()  // projectPath -> pending prompt
+
+// Track sessions that should auto-close after completion
+const autoCloseSessions: Set<string> = new Set()  // ptyId
+
+// Set up API server session mode getter
+apiServerManager.setSessionModeGetter((projectPath) => {
+  const workspace = sessionStore.getWorkspace()
+  const project = workspace.projects.find(p => p.path === projectPath)
+  return project?.apiSessionMode || 'existing'
+})
+
 // Set up API server prompt handler
-apiServerManager.setPromptHandler((projectPath, prompt) => {
-  // Find a PTY for this project
-  for (const [ptyId, path] of ptyToProject) {
-    if (path === projectPath) {
-      // Use \r (carriage return) as that's what terminals send for Enter key
-      ptyManager.write(ptyId, prompt + '\r')
-      return true
+apiServerManager.setPromptHandler(async (projectPath, prompt, sessionMode): Promise<PromptResult> => {
+  // For 'existing' mode: try to use existing PTY
+  if (sessionMode === 'existing') {
+    for (const [ptyId, path] of ptyToProject) {
+      if (path === projectPath) {
+        // Write prompt first, then send Enter after a brief delay
+        // The delay ensures Claude Code's input handler is ready
+        ptyManager.write(ptyId, prompt)
+        setTimeout(() => {
+          ptyManager.write(ptyId, '\r')
+        }, 100)
+        return { success: true, message: 'Prompt sent to existing terminal' }
+      }
     }
+    return { success: false, error: 'No active terminal for this project' }
   }
-  return false
+
+  // For 'new-keep' or 'new-close': request a new session
+  // Get model from project settings
+  const workspace = sessionStore.getWorkspace()
+  const project = workspace.projects.find(p => p.path === projectPath)
+  const model = project?.apiModel
+
+  return new Promise((resolve) => {
+    // Store pending prompt
+    pendingApiPrompts.set(projectPath, {
+      prompt,
+      resolve,
+      autoClose: sessionMode === 'new-close',
+      model
+    })
+
+    // Request renderer to open a new session
+    mainWindow?.webContents.send('api:open-session', { projectPath, autoClose: sessionMode === 'new-close', model })
+
+    // Timeout after 30 seconds if session not created
+    setTimeout(() => {
+      const pending = pendingApiPrompts.get(projectPath)
+      if (pending && pending.resolve === resolve) {
+        pendingApiPrompts.delete(projectPath)
+        resolve({ success: false, error: 'Timeout waiting for session to be created' })
+      }
+    }, 30000)
+  })
 })
 
 function createWindow() {
@@ -200,15 +253,18 @@ ipcMain.handle('sessions:discover', (_, projectPath: string) => {
 })
 
 // PTY management
-ipcMain.handle('pty:spawn', (_, { cwd, sessionId }: { cwd: string; sessionId?: string }) => {
+ipcMain.handle('pty:spawn', (_, { cwd, sessionId, model }: { cwd: string; sessionId?: string; model?: string }) => {
   try {
     // Get auto-accept tools and permission mode from project settings
     const workspace = sessionStore.getWorkspace()
     const project = workspace.projects.find(p => p.path === cwd)
     const autoAcceptTools = project?.autoAcceptTools
     const permissionMode = project?.permissionMode
+    // Use provided model (from API) or fall back to pending prompt's model
+    const pending = pendingApiPrompts.get(cwd)
+    const effectiveModel = model || pending?.model
 
-    const id = ptyManager.spawn(cwd, sessionId, autoAcceptTools, permissionMode)
+    const id = ptyManager.spawn(cwd, sessionId, autoAcceptTools, permissionMode, effectiveModel)
 
     // Track PTY to project mapping
     ptyToProject.set(id, cwd)
@@ -225,7 +281,27 @@ ipcMain.handle('pty:spawn', (_, { cwd, sessionId }: { cwd: string; sessionId?: s
     ptyManager.onExit(id, (code) => {
       mainWindow?.webContents.send(`pty:exit:${id}`, code)
       ptyToProject.delete(id)
+      autoCloseSessions.delete(id)
     })
+
+    // Check for pending API prompts (reuse lookup from earlier)
+    if (pending) {
+      pendingApiPrompts.delete(cwd)
+      // Track auto-close session
+      if (pending.autoClose) {
+        autoCloseSessions.add(id)
+      }
+      // Wait for Claude Code to initialize before sending prompt
+      // Claude takes several seconds to start up and show its input prompt
+      setTimeout(() => {
+        ptyManager.write(id, pending.prompt + '\n')
+        pending.resolve({
+          success: true,
+          message: 'Prompt sent to new terminal',
+          sessionCreated: true
+        })
+      }, 4000)
+    }
 
     return id
   } catch (error: any) {

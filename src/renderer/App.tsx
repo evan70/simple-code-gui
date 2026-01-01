@@ -38,7 +38,7 @@ declare global {
       beadsComplete: (cwd: string, taskId: string) => Promise<{ success: boolean; result?: any; error?: string }>
       beadsDelete: (cwd: string, taskId: string) => Promise<{ success: boolean; error?: string }>
       beadsStart: (cwd: string, taskId: string) => Promise<{ success: boolean; error?: string }>
-      spawnPty: (cwd: string, sessionId?: string) => Promise<string>
+      spawnPty: (cwd: string, sessionId?: string, model?: string) => Promise<string>
       writePty: (id: string, data: string) => void
       resizePty: (id: string, cols: number, rows: number) => void
       killPty: (id: string) => void
@@ -48,6 +48,7 @@ declare global {
       apiStart: (projectPath: string, port: number) => Promise<{ success: boolean; error?: string }>
       apiStop: (projectPath: string) => Promise<{ success: boolean }>
       apiStatus: (projectPath: string) => Promise<{ running: boolean; port?: number }>
+      onApiOpenSession: (callback: (data: { projectPath: string; autoClose: boolean; model?: string }) => void) => () => void
       // Updater
       getVersion: () => Promise<string>
       checkForUpdate: () => Promise<{ success: boolean; version?: string; error?: string }>
@@ -104,6 +105,7 @@ function App() {
   const [sidebarWidth, setSidebarWidth] = useState(280)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const initRef = useRef(false)
+  const hadProjectsRef = useRef(false) // Track if we ever had projects loaded
 
   // Load workspace on mount and restore tabs
   useEffect(() => {
@@ -136,6 +138,9 @@ function App() {
         const workspace = await window.electronAPI.getWorkspace()
         if (workspace.projects) {
           setProjects(workspace.projects)
+          if (workspace.projects.length > 0) {
+            hadProjectsRef.current = true
+          }
         }
 
         // Restore previously open tabs (only if not already open)
@@ -223,6 +228,21 @@ function App() {
   // Save workspace when it changes
   useEffect(() => {
     if (!loading) {
+      // Protect against hot reload wiping data:
+      // Use sessionStorage to persist flag across HMR (refs get reset)
+      const hadProjects = sessionStorage.getItem('hadProjects') === 'true' || hadProjectsRef.current
+
+      if (projects.length === 0 && hadProjects) {
+        console.warn('Skipping save: projects empty but previously had projects (likely hot reload)')
+        return
+      }
+
+      // Track that we have projects (both in ref and sessionStorage for HMR)
+      if (projects.length > 0) {
+        hadProjectsRef.current = true
+        sessionStorage.setItem('hadProjects', 'true')
+      }
+
       window.electronAPI.saveWorkspace({
         projects,
         openTabs: openTabs.map(t => ({
@@ -268,6 +288,30 @@ function App() {
 
     return () => clearInterval(pollInterval)
   }, [openTabs, updateTab])
+
+  // Listen for API requests to open new sessions
+  useEffect(() => {
+    const unsubscribe = window.electronAPI.onApiOpenSession(async ({ projectPath, autoClose, model }) => {
+      // Open a new session for this project (API-triggered)
+      const projectName = projectPath.split(/[/\\]/).pop() || projectPath
+      const modelLabel = model && model !== 'default' ? ` [${model}]` : ''
+      const title = `${projectName} - API${modelLabel}${autoClose ? ' (auto-close)' : ''}`
+
+      try {
+        const ptyId = await window.electronAPI.spawnPty(projectPath, undefined, model)
+        addTab({
+          id: ptyId,
+          projectPath,
+          title,
+          ptyId
+        })
+      } catch (e: any) {
+        console.error('Failed to spawn PTY for API request:', e)
+      }
+    })
+
+    return unsubscribe
+  }, [addTab])
 
   const handleAddProject = useCallback(async () => {
     const path = await window.electronAPI.addProject()

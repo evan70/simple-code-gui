@@ -47,7 +47,7 @@ export interface ElectronAPI {
   beadsStart: (cwd: string, taskId: string) => Promise<{ success: boolean; error?: string }>
 
   // PTY
-  spawnPty: (cwd: string, sessionId?: string) => Promise<string>
+  spawnPty: (cwd: string, sessionId?: string, model?: string) => Promise<string>
   writePty: (id: string, data: string) => void
   resizePty: (id: string, cols: number, rows: number) => void
   killPty: (id: string) => void
@@ -58,6 +58,7 @@ export interface ElectronAPI {
   apiStart: (projectPath: string, port: number) => Promise<{ success: boolean; error?: string }>
   apiStop: (projectPath: string) => Promise<{ success: boolean }>
   apiStatus: (projectPath: string) => Promise<{ running: boolean; port?: number }>
+  onApiOpenSession: (callback: (data: { projectPath: string; autoClose: boolean; model?: string }) => void) => () => void
 
   // Updater
   getVersion: () => Promise<string>
@@ -125,7 +126,7 @@ const api: ElectronAPI = {
   beadsStart: (cwd, taskId) => ipcRenderer.invoke('beads:start', { cwd, taskId }),
 
   // PTY management
-  spawnPty: (cwd, sessionId) => ipcRenderer.invoke('pty:spawn', { cwd, sessionId }),
+  spawnPty: (cwd, sessionId, model) => ipcRenderer.invoke('pty:spawn', { cwd, sessionId, model }),
   writePty: (id, data) => ipcRenderer.send('pty:write', { id, data }),
   resizePty: (id, cols, rows) => ipcRenderer.send('pty:resize', { id, cols, rows }),
   killPty: (id) => ipcRenderer.send('pty:kill', id),
@@ -146,6 +147,11 @@ const api: ElectronAPI = {
   apiStart: (projectPath, port) => ipcRenderer.invoke('api:start', { projectPath, port }),
   apiStop: (projectPath) => ipcRenderer.invoke('api:stop', projectPath),
   apiStatus: (projectPath) => ipcRenderer.invoke('api:status', projectPath),
+  onApiOpenSession: (callback) => {
+    const handler = (_: any, data: { projectPath: string; autoClose: boolean; model?: string }) => callback(data)
+    ipcRenderer.on('api:open-session', handler)
+    return () => ipcRenderer.removeListener('api:open-session', handler)
+  },
 
   // Updater
   getVersion: () => ipcRenderer.invoke('updater:getVersion'),

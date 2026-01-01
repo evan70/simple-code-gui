@@ -2019,6 +2019,35 @@ html, body, #root {
   border: 1px dashed var(--border-default);
 }
 
+.api-session-mode-row {
+  display: flex;
+  gap: 4px;
+  padding: var(--space-xs) var(--space-md);
+}
+
+.session-mode-btn {
+  flex: 1;
+  padding: 4px 8px;
+  font-size: 11px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.session-mode-btn:hover {
+  background: var(--bg-secondary);
+  border-color: var(--accent-color);
+}
+
+.session-mode-btn.selected {
+  background: var(--accent-color);
+  border-color: var(--accent-color);
+  color: #fff;
+}
+
 .menu-hint {
   margin-left: auto;
   padding-left: var(--space-md);
@@ -2027,13 +2056,81 @@ html, body, #root {
   font-family: var(--font-mono);
 }
 
-/* API Port Modal */
-.api-port-modal {
-  width: 420px;
+/* Project Settings Modal */
+.project-settings-modal {
+  width: 520px;
+  max-height: 80vh;
+  overflow-y: auto;
 }
 
-.api-port-modal input[type="number"] {
-  width: 120px;
+.project-settings-modal input[type="number"] {
+  width: 180px;
+}
+
+.settings-section {
+  margin-bottom: var(--space-lg);
+  padding-bottom: var(--space-lg);
+  border-bottom: 1px solid var(--border-default);
+}
+
+.settings-section:last-child {
+  margin-bottom: 0;
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+.settings-section h3 {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 0 0 var(--space-xs) 0;
+}
+
+.session-mode-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-xs);
+}
+
+.session-mode-options.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.session-mode-option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.session-mode-option:hover {
+  background: var(--bg-secondary);
+  border-color: var(--accent-color);
+}
+
+.session-mode-option.selected {
+  background: color-mix(in srgb, var(--accent-color) 15%, transparent);
+  border-color: var(--accent-color);
+}
+
+.session-mode-option input[type="radio"] {
+  margin: 0;
+}
+
+.session-mode-option .mode-label {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.session-mode-option .mode-desc {
+  color: var(--text-muted);
+  font-size: 12px;
 }
 
 .api-usage {

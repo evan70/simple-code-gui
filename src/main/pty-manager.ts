@@ -80,12 +80,17 @@ export class PtyManager {
   private dataCallbacks: Map<string, (data: string) => void> = new Map()
   private exitCallbacks: Map<string, (code: number) => void> = new Map()
 
-  spawn(cwd: string, sessionId?: string, autoAcceptTools?: string[], permissionMode?: string): string {
+  spawn(cwd: string, sessionId?: string, autoAcceptTools?: string[], permissionMode?: string, model?: string): string {
     const id = crypto.randomUUID()
 
     const args: string[] = []
     if (sessionId) {
       args.push('-r', sessionId)
+    }
+
+    // Add model if specified (and not default)
+    if (model && model !== 'default') {
+      args.push('--model', model)
     }
 
     // Add permission mode if configured (and not default)
