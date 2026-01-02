@@ -426,7 +426,7 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
         {projects.map((project) => (
           <div key={project.path}>
             <div
-              className={`project-item ${expandedProject === project.path ? 'expanded' : ''} ${openTabs.some(t => t.projectPath === project.path) ? 'has-open-tab' : ''} ${project.executable ? 'has-executable' : ''} ${project.color ? 'has-color' : ''}`}
+              className={`project-item ${expandedProject === project.path ? 'expanded' : ''} ${openTabs.some(t => t.projectPath === project.path) ? 'has-open-tab' : ''} ${project.executable ? 'has-executable' : ''} ${project.color ? 'has-color' : ''} ${focusedProjectPath === project.path ? 'focused' : ''}`}
               style={project.color ? { backgroundColor: `${project.color}20` } : undefined}
               onClick={() => openMostRecentSession(project.path)}
               onContextMenu={(e) => handleContextMenu(e, project)}

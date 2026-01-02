@@ -75,87 +75,77 @@ function generateDefaultLayout(tabs: OpenTab[]): TileLayout[] {
     return [{ id: tabs[0].id, x: 0, y: 0, width: 100, height: 100 }]
   }
   if (count === 2) {
+    // 1x2: side by side
     return [
       { id: tabs[0].id, x: 0, y: 0, width: 50, height: 100 },
       { id: tabs[1].id, x: 50, y: 0, width: 50, height: 100 }
     ]
   }
   if (count === 3) {
+    // 2 stacked + 1 full height
     return [
-      { id: tabs[0].id, x: 0, y: 0, width: 50, height: 100 },
-      { id: tabs[1].id, x: 50, y: 0, width: 50, height: 50 },
-      { id: tabs[2].id, x: 50, y: 50, width: 50, height: 50 }
+      { id: tabs[0].id, x: 0, y: 0, width: 50, height: 50 },
+      { id: tabs[1].id, x: 0, y: 50, width: 50, height: 50 },
+      { id: tabs[2].id, x: 50, y: 0, width: 50, height: 100 }
     ]
   }
-  // 4 or more: 2x2 grid, extras wrap
-  return tabs.map((tab, i) => ({
-    id: tab.id,
-    x: (i % 2) * 50,
-    y: Math.floor(i / 2) * 50,
-    width: 50,
-    height: 50
-  }))
-}
 
-// When a tile is removed, expand neighbors to fill the gap
-function redistributeAfterClose(layout: TileLayout[], removedTile: TileLayout): TileLayout[] {
-  if (layout.length === 0) return layout
-  if (layout.length === 1) {
-    // Single tile takes full space
-    return [{ ...layout[0], x: 0, y: 0, width: 100, height: 100 }]
-  }
+  // 4+: 2 rows, variable columns
+  // Even: perfect grid
+  // Odd: grid + 1 double-width tile at bottom right
+  const isOdd = count % 2 === 1
+  const cols = Math.ceil(count / 2)
+  const colWidth = 100 / cols
+  const rowHeight = 50
 
-  const newLayout = [...layout]
-  const EPSILON = 0.5 // Tolerance for edge matching
+  const layout: TileLayout[] = []
 
-  // Find tiles that were adjacent to the removed tile and expand them
-  // Try horizontal neighbors first (same y range)
-  const horizontalNeighbors = newLayout.filter(t => {
-    const sameYRange = t.y < removedTile.y + removedTile.height - EPSILON &&
-                       t.y + t.height > removedTile.y + EPSILON
-    const touchesLeft = Math.abs(t.x + t.width - removedTile.x) < EPSILON
-    const touchesRight = Math.abs(t.x - (removedTile.x + removedTile.width)) < EPSILON
-    return sameYRange && (touchesLeft || touchesRight)
-  })
-
-  if (horizontalNeighbors.length > 0) {
-    horizontalNeighbors.forEach(neighbor => {
-      const idx = newLayout.findIndex(t => t.id === neighbor.id)
-      if (Math.abs(neighbor.x + neighbor.width - removedTile.x) < EPSILON) {
-        // Neighbor is to the left, expand right
-        newLayout[idx] = { ...neighbor, width: neighbor.width + removedTile.width }
-      } else {
-        // Neighbor is to the right, expand left
-        newLayout[idx] = { ...neighbor, x: removedTile.x, width: neighbor.width + removedTile.width }
-      }
+  if (isOdd) {
+    // First row: all cols filled
+    for (let i = 0; i < cols; i++) {
+      layout.push({
+        id: tabs[i].id,
+        x: i * colWidth,
+        y: 0,
+        width: colWidth,
+        height: rowHeight
+      })
+    }
+    // Second row: (cols - 2) normal tiles + 1 double-width
+    const secondRowNormal = cols - 2
+    for (let i = 0; i < secondRowNormal; i++) {
+      layout.push({
+        id: tabs[cols + i].id,
+        x: i * colWidth,
+        y: rowHeight,
+        width: colWidth,
+        height: rowHeight
+      })
+    }
+    // Last tile spans 2 columns
+    layout.push({
+      id: tabs[count - 1].id,
+      x: secondRowNormal * colWidth,
+      y: rowHeight,
+      width: colWidth * 2,
+      height: rowHeight
     })
-    return newLayout
+  } else {
+    // Even: perfect grid with 2 rows
+    for (let i = 0; i < count; i++) {
+      const col = i % cols
+      const row = Math.floor(i / cols)
+      layout.push({
+        id: tabs[i].id,
+        x: col * colWidth,
+        y: row * rowHeight,
+        width: colWidth,
+        height: rowHeight
+      })
+    }
   }
 
-  // Try vertical neighbors
-  const verticalNeighbors = newLayout.filter(t => {
-    const sameXRange = t.x < removedTile.x + removedTile.width - EPSILON &&
-                       t.x + t.width > removedTile.x + EPSILON
-    const touchesTop = Math.abs(t.y + t.height - removedTile.y) < EPSILON
-    const touchesBottom = Math.abs(t.y - (removedTile.y + removedTile.height)) < EPSILON
-    return sameXRange && (touchesTop || touchesBottom)
-  })
-
-  if (verticalNeighbors.length > 0) {
-    verticalNeighbors.forEach(neighbor => {
-      const idx = newLayout.findIndex(t => t.id === neighbor.id)
-      if (Math.abs(neighbor.y + neighbor.height - removedTile.y) < EPSILON) {
-        // Neighbor is above, expand down
-        newLayout[idx] = { ...neighbor, height: neighbor.height + removedTile.height }
-      } else {
-        // Neighbor is below, expand up
-        newLayout[idx] = { ...neighbor, y: removedTile.y, height: neighbor.height + removedTile.height }
-      }
-    })
-    return newLayout
-  }
-
-  return newLayout
+  return layout
 }
 
 export function TiledTerminalView({
@@ -208,71 +198,20 @@ export function TiledTerminalView({
       return generateDefaultLayout(tabs)
     }
 
-    // Ensure all tabs have a layout entry
+    // Check if tab count changed (tabs added or removed)
     const layoutIds = new Set(layout.map(l => l.id))
     const tabIds = new Set(tabs.map(t => t.id))
+    const tabsChanged = layout.length !== tabs.length ||
+      !tabs.every(t => layoutIds.has(t.id)) ||
+      !layout.every(l => tabIds.has(l.id))
 
-    // Find closed tabs and redistribute their space
-    const closedLayouts = layout.filter(l => !tabIds.has(l.id))
-    let newLayout = layout.filter(l => tabIds.has(l.id))
-
-    // Redistribute space from closed tiles
-    closedLayouts.forEach(closedTile => {
-      newLayout = redistributeAfterClose(newLayout, closedTile)
-    })
-
-    // Add new tabs by splitting space from existing tiles
-    const newTabs = tabs.filter(t => !layoutIds.has(t.id))
-    if (newTabs.length > 0) {
-      newTabs.forEach((tab) => {
-        if (newLayout.length === 0) {
-          // First tile takes full space
-          newLayout.push({
-            id: tab.id,
-            x: 0,
-            y: 0,
-            width: 100,
-            height: 100
-          })
-        } else {
-          // Find the largest tile and split it
-          const largestTile = newLayout.reduce((largest, tile) => {
-            const area = tile.width * tile.height
-            const largestArea = largest.width * largest.height
-            return area > largestArea ? tile : largest
-          })
-
-          // Split the largest tile - prefer horizontal split if wide, vertical if tall
-          const tileIndex = newLayout.findIndex(t => t.id === largestTile.id)
-          if (largestTile.width >= largestTile.height) {
-            // Split horizontally (side by side)
-            const halfWidth = largestTile.width / 2
-            newLayout[tileIndex] = { ...largestTile, width: halfWidth }
-            newLayout.push({
-              id: tab.id,
-              x: largestTile.x + halfWidth,
-              y: largestTile.y,
-              width: halfWidth,
-              height: largestTile.height
-            })
-          } else {
-            // Split vertically (stacked)
-            const halfHeight = largestTile.height / 2
-            newLayout[tileIndex] = { ...largestTile, height: halfHeight }
-            newLayout.push({
-              id: tab.id,
-              x: largestTile.x,
-              y: largestTile.y + halfHeight,
-              width: largestTile.width,
-              height: halfHeight
-            })
-          }
-        }
-      })
+    // If tabs changed, regenerate the default grid layout
+    if (tabsChanged) {
+      return generateDefaultLayout(tabs)
     }
 
-    // Validate and fix any overlapping tiles
-    return validateLayout(newLayout, tabs)
+    // Tabs haven't changed, keep existing layout (user may have resized)
+    return validateLayout(layout, tabs)
   }, [layout, tabs])
 
   // Keep ref in sync with effectiveLayout

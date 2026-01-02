@@ -324,6 +324,11 @@ html, body, #root {
   box-shadow: inset 3px 0 8px -4px var(--accent);
 }
 
+.project-item.focused {
+  outline: 2px solid var(--text-primary);
+  outline-offset: -2px;
+}
+
 .expand-arrow {
   width: 24px;
   height: 24px;

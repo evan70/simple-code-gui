@@ -184,24 +184,11 @@ function App() {
           }
         }
 
-        // Restore view mode and tile layout
+        // Restore view mode (layout auto-generates based on tab count)
         if (workspace.viewMode) {
           setViewMode(workspace.viewMode)
         }
-        if (workspace.tileLayout && workspace.tileLayout.length > 0) {
-          // Remap old IDs to new IDs
-          const remappedLayout = workspace.tileLayout
-            .map((tile: any) => ({
-              ...tile,
-              id: idMapping.get(tile.id) || tile.id
-            }))
-            .filter((tile: any) => {
-              // Only keep tiles that have a valid new ID
-              const newTabs = useWorkspaceStore.getState().openTabs
-              return newTabs.some(t => t.id === tile.id)
-            })
-          setTileLayout(remappedLayout)
-        }
+        // Don't restore tileLayout - let it auto-generate for clean grid
       } catch (e) {
         console.error('Failed to load workspace:', e)
       }
