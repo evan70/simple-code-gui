@@ -92,46 +92,41 @@ function generateDefaultLayout(tabs: OpenTab[]): TileLayout[] {
 
   // 4+: 2 rows, variable columns
   // Even: perfect grid
-  // Odd: grid + 1 double-width tile at bottom right
+  // Odd: top row has more tiles, bottom row tiles share space equally
   const isOdd = count % 2 === 1
-  const cols = Math.ceil(count / 2)
-  const colWidth = 100 / cols
+  const topRowCount = Math.ceil(count / 2)
+  const bottomRowCount = Math.floor(count / 2)
+  const topColWidth = 100 / topRowCount
+  const bottomColWidth = 100 / bottomRowCount
   const rowHeight = 50
 
   const layout: TileLayout[] = []
 
   if (isOdd) {
-    // First row: all cols filled
-    for (let i = 0; i < cols; i++) {
+    // Top row: more tiles
+    for (let i = 0; i < topRowCount; i++) {
       layout.push({
         id: tabs[i].id,
-        x: i * colWidth,
+        x: i * topColWidth,
         y: 0,
-        width: colWidth,
+        width: topColWidth,
         height: rowHeight
       })
     }
-    // Second row: (cols - 2) normal tiles + 1 double-width
-    const secondRowNormal = cols - 2
-    for (let i = 0; i < secondRowNormal; i++) {
+    // Bottom row: fewer tiles sharing space equally
+    for (let i = 0; i < bottomRowCount; i++) {
       layout.push({
-        id: tabs[cols + i].id,
-        x: i * colWidth,
+        id: tabs[topRowCount + i].id,
+        x: i * bottomColWidth,
         y: rowHeight,
-        width: colWidth,
+        width: bottomColWidth,
         height: rowHeight
       })
     }
-    // Last tile spans 2 columns
-    layout.push({
-      id: tabs[count - 1].id,
-      x: secondRowNormal * colWidth,
-      y: rowHeight,
-      width: colWidth * 2,
-      height: rowHeight
-    })
   } else {
     // Even: perfect grid with 2 rows
+    const cols = topRowCount
+    const colWidth = topColWidth
     for (let i = 0; i < count; i++) {
       const col = i % cols
       const row = Math.floor(i / cols)

@@ -4,6 +4,8 @@ A desktop app for managing multiple [Claude Code](https://docs.anthropic.com/en/
 
 Stop juggling terminal tabs. Simple Claude GUI lets you run Claude Code on multiple projects simultaneously, instantly resume past conversations, and switch between sessions with a click. Paste images directly, track tasks with Beads integration, and customize with 9 themes.
 
+[![Discord](https://img.shields.io/badge/Discord-Join%20Server-5865F2?logo=discord&logoColor=white)](https://discord.gg/ZhvPhXrdZ4) - Help, feature requests, and discussions
+
 ![GitHub Release](https://img.shields.io/github/v/release/DonutsDelivery/simple-claude-gui)
 ![Downloads](https://img.shields.io/github/downloads/DonutsDelivery/simple-claude-gui/total)
 ![Electron](https://img.shields.io/badge/Electron-33-47848F?logo=electron)
