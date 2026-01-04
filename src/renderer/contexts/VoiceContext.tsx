@@ -17,16 +17,31 @@ interface VoiceContextValue {
 const VoiceContext = createContext<VoiceContextValue | null>(null)
 
 export function VoiceProvider({ children }: { children: React.ReactNode }) {
-  const [voiceOutputEnabled, setVoiceOutputEnabled] = useState(false)
+  const [voiceOutputEnabled, setVoiceOutputEnabledState] = useState(false)
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [volume, setVolumeState] = useState(1.0)
   const [speed, setSpeedState] = useState(1.0)
-  const [skipOnNew, setSkipOnNew] = useState(false)
+  const [skipOnNew, setSkipOnNewState] = useState(false)
+  const [settingsLoaded, setSettingsLoaded] = useState(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)
   const speakQueueRef = useRef<string[]>([])
   const isProcessingRef = useRef(false)
   const voiceOutputEnabledRef = useRef(voiceOutputEnabled)
   const skipOnNewRef = useRef(skipOnNew)
+
+  // Load settings on mount
+  useEffect(() => {
+    window.electronAPI.getSettings().then((settings) => {
+      if (settings.voiceOutputEnabled !== undefined) setVoiceOutputEnabledState(settings.voiceOutputEnabled)
+      if (settings.voiceVolume !== undefined) setVolumeState(settings.voiceVolume)
+      if (settings.voiceSpeed !== undefined) {
+        setSpeedState(settings.voiceSpeed)
+        window.electronAPI.voiceApplySettings?.({ ttsSpeed: settings.voiceSpeed })
+      }
+      if (settings.voiceSkipOnNew !== undefined) setSkipOnNewState(settings.voiceSkipOnNew)
+      setSettingsLoaded(true)
+    })
+  }, [])
 
   // Keep refs in sync to avoid stale closures
   useEffect(() => {
@@ -37,6 +52,19 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     skipOnNewRef.current = skipOnNew
   }, [skipOnNew])
 
+  // Save a single voice setting
+  const saveVoiceSetting = useCallback(async (key: string, value: boolean | number) => {
+    if (!settingsLoaded) return
+    const settings = await window.electronAPI.getSettings()
+    await window.electronAPI.saveSettings({ ...settings, [key]: value })
+  }, [settingsLoaded])
+
+  // Wrapper for setVoiceOutputEnabled that saves setting
+  const setVoiceOutputEnabled = useCallback((enabled: boolean) => {
+    setVoiceOutputEnabledState(enabled)
+    saveVoiceSetting('voiceOutputEnabled', enabled)
+  }, [saveVoiceSetting])
+
   // Update volume on current audio
   const setVolume = useCallback((v: number) => {
     const clamped = Math.max(0, Math.min(1, v))
@@ -44,14 +72,22 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     if (audioRef.current) {
       audioRef.current.volume = clamped
     }
-  }, [])
+    saveVoiceSetting('voiceVolume', clamped)
+  }, [saveVoiceSetting])
 
   // Update speed and notify backend
   const setSpeed = useCallback((s: number) => {
     const clamped = Math.max(0.5, Math.min(2.0, s))
     setSpeedState(clamped)
     window.electronAPI.voiceApplySettings?.({ ttsSpeed: clamped })
-  }, [])
+    saveVoiceSetting('voiceSpeed', clamped)
+  }, [saveVoiceSetting])
+
+  // Update skipOnNew and save
+  const setSkipOnNew = useCallback((skip: boolean) => {
+    setSkipOnNewState(skip)
+    saveVoiceSetting('voiceSkipOnNew', skip)
+  }, [saveVoiceSetting])
 
   // Process the speak queue
   const processQueue = useCallback(async () => {

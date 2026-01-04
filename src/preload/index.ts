@@ -3,6 +3,10 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 export interface Settings {
   defaultProjectDir: string
   theme: string
+  voiceOutputEnabled?: boolean
+  voiceVolume?: number
+  voiceSpeed?: number
+  voiceSkipOnNew?: boolean
 }
 
 export interface ElectronAPI {

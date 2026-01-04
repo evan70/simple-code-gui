@@ -49,6 +49,10 @@ export interface Settings {
   theme: string
   autoAcceptTools?: string[]  // List of tool patterns to auto-accept (e.g., "Bash(git:*)", "Read", "Write")
   permissionMode?: string     // Permission mode: default, acceptEdits, dontAsk, bypassPermissions
+  voiceOutputEnabled?: boolean
+  voiceVolume?: number
+  voiceSpeed?: number
+  voiceSkipOnNew?: boolean
 }
 
 interface StoredData {
