@@ -12,7 +12,21 @@ import * as https from 'https'
 const depsDir = path.join(app.getPath('userData'), 'deps')
 const xttsDir = path.join(depsDir, 'xtts')
 const xttsVoicesDir = path.join(xttsDir, 'voices')
+const xttsVenvDir = path.join(xttsDir, 'venv')
 const xttsScriptPath = path.join(xttsDir, 'xtts_helper.py')
+
+// Get venv Python path
+function getVenvPython(): string {
+  return isWindows
+    ? path.join(xttsVenvDir, 'Scripts', 'python.exe')
+    : path.join(xttsVenvDir, 'bin', 'python')
+}
+
+function getVenvPip(): string {
+  return isWindows
+    ? path.join(xttsVenvDir, 'Scripts', 'pip.exe')
+    : path.join(xttsVenvDir, 'bin', 'pip')
+}
 
 // Hugging Face XTTS-v2 sample voices
 const XTTS_HF_BASE = 'https://huggingface.co/coqui/XTTS-v2/resolve/main/samples'
@@ -173,6 +187,32 @@ class XTTSManager {
   }
 
   async checkInstallation(): Promise<XTTSStatus> {
+    // First check if venv exists and has TTS installed
+    const venvPython = getVenvPython()
+    if (fs.existsSync(venvPython)) {
+      this.ensureHelperScript()
+      try {
+        const { stdout } = await execAsync(`"${venvPython}" "${xttsScriptPath}" check`, {
+          timeout: 30000
+        })
+        const result = JSON.parse(stdout.trim())
+        return {
+          installed: result.installed,
+          pythonPath: venvPython,
+          modelDownloaded: false,
+          error: result.error
+        }
+      } catch (e: any) {
+        return {
+          installed: false,
+          pythonPath: venvPython,
+          modelDownloaded: false,
+          error: e.message
+        }
+      }
+    }
+
+    // Venv doesn't exist, check if system Python is available
     if (!this.pythonPath) {
       await this.initPythonPath()
     }
@@ -186,47 +226,46 @@ class XTTSManager {
       }
     }
 
-    this.ensureHelperScript()
-
-    try {
-      const { stdout } = await execAsync(`${this.pythonPath} "${xttsScriptPath}" check`, {
-        timeout: 30000
-      })
-      const result = JSON.parse(stdout.trim())
-
-      return {
-        installed: result.installed,
-        pythonPath: this.pythonPath,
-        modelDownloaded: false, // We can't easily check this without loading the model
-        error: result.error
-      }
-    } catch (e: any) {
-      return {
-        installed: false,
-        pythonPath: this.pythonPath,
-        modelDownloaded: false,
-        error: e.message
-      }
+    return {
+      installed: false,
+      pythonPath: this.pythonPath,
+      modelDownloaded: false,
+      error: "No module named 'TTS'"
     }
   }
 
   async install(onProgress?: (status: string, percent?: number) => void): Promise<{ success: boolean; error?: string }> {
     if (!this.pythonPath) {
+      await this.initPythonPath()
+    }
+
+    if (!this.pythonPath) {
       return { success: false, error: 'Python 3 not found' }
     }
 
     try {
-      onProgress?.('Installing TTS library (this may take a few minutes)...', 0)
+      ensureDir(xttsDir)
 
-      // Install TTS library via pip
-      const pipCmd = isWindows ? 'pip' : 'pip3'
+      // Create virtual environment
+      onProgress?.('Creating virtual environment...', 5)
+      const venvPython = getVenvPython()
 
-      await execAsync(`${this.pythonPath} -m pip install --upgrade pip`, { timeout: 120000 })
+      if (!fs.existsSync(venvPython)) {
+        await execAsync(`${this.pythonPath} -m venv "${xttsVenvDir}"`, { timeout: 120000 })
+      }
+
+      if (!fs.existsSync(venvPython)) {
+        return { success: false, error: 'Failed to create virtual environment' }
+      }
+
+      // Upgrade pip in venv
       onProgress?.('Upgrading pip...', 10)
+      await execAsync(`"${venvPython}" -m pip install --upgrade pip`, { timeout: 120000 })
 
       // Install TTS (this is the main package that includes XTTS)
-      await execAsync(`${this.pythonPath} -m pip install TTS`, {
-        timeout: 600000  // 10 minutes - it's a large package
+      onProgress?.('Installing TTS library (this may take several minutes)...', 20)
+      await execAsync(`"${venvPython}" -m pip install TTS`, {
+        timeout: 900000  // 15 minutes - it's a large package with many dependencies
       })
       onProgress?.('TTS library installed', 90)
 
@@ -341,7 +380,11 @@ class XTTSManager {
       return { success: false, error: 'Voice not found' }
     }
 
-    if (!this.pythonPath) {
+    // Use venv Python if available, otherwise system Python
+    const venvPython = getVenvPython()
+    const pythonToUse = fs.existsSync(venvPython) ? venvPython : this.pythonPath
+
+    if (!pythonToUse) {
       return { success: false, error: 'Python not found' }
     }
 
@@ -362,7 +405,7 @@ class XTTSManager {
           outputPath
         ]
 
-        const proc = spawn(this.pythonPath!, args)
+        const proc = spawn(pythonToUse, args)
         this.speakingProcess = proc
 
         let stdout = ''
