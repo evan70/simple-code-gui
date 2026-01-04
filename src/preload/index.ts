@@ -101,6 +101,10 @@ export interface ElectronAPI {
 
   // Debug logging
   debugLog: (message: string) => void
+
+  // App utilities
+  isDebugMode: () => Promise<boolean>
+  refresh: () => Promise<void>
 }
 
 const api: ElectronAPI = {
@@ -220,7 +224,11 @@ const api: ElectronAPI = {
   windowIsMaximized: () => ipcRenderer.invoke('window:isMaximized'),
 
   // Debug logging
-  debugLog: (message) => ipcRenderer.send('debug:log', message)
+  debugLog: (message) => ipcRenderer.send('debug:log', message),
+
+  // App utilities
+  isDebugMode: () => ipcRenderer.invoke('app:isDebugMode'),
+  refresh: () => ipcRenderer.invoke('app:refresh')
 }
 
 contextBridge.exposeInMainWorld('electronAPI', api)

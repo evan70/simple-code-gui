@@ -112,6 +112,7 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
   const [globalPermissions, setGlobalPermissions] = useState<{ tools: string[]; mode: string }>({ tools: [], mode: 'default' })
   const [apiStatus, setApiStatus] = useState<Record<string, { running: boolean; port?: number }>>({})
   const [editingProject, setEditingProject] = useState<{ path: string; name: string } | null>(null)
+  const [isDebugMode, setIsDebugMode] = useState(false)
   const sidebarRef = useRef<HTMLDivElement>(null)
   const editInputRef = useRef<HTMLInputElement>(null)
 
@@ -328,6 +329,11 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
       })
     }
   }, [focusedProjectPath])
+
+  // Check if running in debug mode
+  useEffect(() => {
+    window.electronAPI.isDebugMode().then(setIsDebugMode)
+  }, [])
 
   useEffect(() => {
     const loadSessions = async () => {
@@ -575,6 +581,16 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
           }
           return null
         })()}
+        {isDebugMode && (
+          <button
+            className="action-icon-btn"
+            onClick={() => window.electronAPI.refresh()}
+            tabIndex={-1}
+            title="Refresh (Debug Mode)"
+          >
+            🔄
+          </button>
+        )}
         <button
           className="action-icon-btn"
           onClick={onOpenSettings}

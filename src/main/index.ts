@@ -34,6 +34,9 @@ import {
 import { initUpdater } from './updater'
 import { voiceManager, WHISPER_MODELS, PIPER_VOICES, WhisperModelName, PiperVoiceName } from './voice-manager'
 
+// Debug mode - enables manual refresh button and disables hot-reload
+const isDebugMode = process.argv.includes('--debug')
+
 // Single instance lock - prevent multiple instances
 const gotTheLock = app.requestSingleInstanceLock()
 
@@ -354,6 +357,14 @@ ipcMain.handle('settings:get', () => {
 
 ipcMain.handle('settings:save', (_, settings) => {
   sessionStore.saveSettings(settings)
+})
+
+// Debug mode check
+ipcMain.handle('app:isDebugMode', () => isDebugMode)
+
+// Refresh the renderer (for debug mode)
+ipcMain.handle('app:refresh', () => {
+  mainWindow?.webContents.reload()
 })
 
 ipcMain.handle('settings:selectDirectory', async () => {
