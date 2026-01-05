@@ -2965,6 +2965,20 @@ html, body, #root {
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  cursor: text;
+}
+
+.beads-task-edit-input {
+  flex: 1;
+  font-size: 13px;
+  color: var(--text-primary);
+  background: var(--bg-secondary);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  padding: 2px 4px;
+  font-family: var(--font-ui);
+  outline: none;
+  width: 100%;
 }
 
 .beads-task-id {

@@ -706,9 +706,12 @@ ipcMain.handle('beads:start', async (_, { cwd, taskId }: { cwd: string; taskId: 
   }
 })
 
-ipcMain.handle('beads:update', async (_, { cwd, taskId, status }: { cwd: string; taskId: string; status: string }) => {
+ipcMain.handle('beads:update', async (_, { cwd, taskId, status, title }: { cwd: string; taskId: string; status?: string; title?: string }) => {
   try {
-    await execAsync(`bd update ${taskId} --status ${status}`, { ...getBeadsExecOptions(), cwd })
+    const args = [taskId]
+    if (status) args.push('--status', status)
+    if (title) args.push('--title', `"${title.replace(/"/g, '\\"')}"`)
+    await execAsync(`bd update ${args.join(' ')}`, { ...getBeadsExecOptions(), cwd })
     return { success: true }
   } catch (e: any) {
     return { success: false, error: e.message }

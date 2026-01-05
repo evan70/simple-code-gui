@@ -44,6 +44,9 @@ export function BeadsPanel({ projectPath, isExpanded, onToggle }: BeadsPanelProp
   })
   const [isResizing, setIsResizing] = useState(false)
   const resizeRef = useRef<{ startY: number; startHeight: number } | null>(null)
+  const [editingTaskId, setEditingTaskId] = useState<string | null>(null)
+  const [editingTitle, setEditingTitle] = useState('')
+  const editInputRef = useRef<HTMLInputElement>(null)
 
   const loadTasks = useCallback(async (showLoading = true) => {
     if (!projectPath) return
@@ -287,6 +290,43 @@ export function BeadsPanel({ projectPath, isExpanded, onToggle }: BeadsPanelProp
     }
   }
 
+  const handleStartEdit = (task: BeadsTask) => {
+    setEditingTaskId(task.id)
+    setEditingTitle(task.title)
+    setTimeout(() => editInputRef.current?.focus(), 0)
+  }
+
+  const handleSaveEdit = async () => {
+    if (!projectPath || !editingTaskId || !editingTitle.trim()) {
+      setEditingTaskId(null)
+      return
+    }
+
+    const originalTask = tasks.find(t => t.id === editingTaskId)
+    if (originalTask && originalTask.title === editingTitle.trim()) {
+      setEditingTaskId(null)
+      return
+    }
+
+    try {
+      const result = await window.electronAPI.beadsUpdate(projectPath, editingTaskId, undefined, editingTitle.trim())
+      if (result.success) {
+        loadTasks()
+      } else {
+        setError(result.error || 'Failed to update task title')
+      }
+    } catch (e) {
+      setError(String(e))
+    } finally {
+      setEditingTaskId(null)
+    }
+  }
+
+  const handleCancelEdit = () => {
+    setEditingTaskId(null)
+    setEditingTitle('')
+  }
+
   const handleClearCompleted = async () => {
     if (!projectPath) return
 
@@ -439,7 +479,30 @@ export function BeadsPanel({ projectPath, isExpanded, onToggle }: BeadsPanelProp
                         </button>
                       )}
                       <div className="beads-task-content">
-                        <div className={`beads-task-title ${task.status === 'closed' ? 'completed' : ''}`} title={task.title}>{task.title}</div>
+                        {editingTaskId === task.id ? (
+                          <input
+                            ref={editInputRef}
+                            className="beads-task-edit-input"
+                            value={editingTitle}
+                            onChange={(e) => setEditingTitle(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                e.preventDefault()
+                                handleSaveEdit()
+                              }
+                              if (e.key === 'Escape') handleCancelEdit()
+                            }}
+                            onBlur={handleSaveEdit}
+                          />
+                        ) : (
+                          <div
+                            className={`beads-task-title ${task.status === 'closed' ? 'completed' : ''}`}
+                            title="Double-click to edit"
+                            onDoubleClick={() => handleStartEdit(task)}
+                          >
+                            {task.title}
+                          </div>
+                        )}
                         <div className="beads-task-meta">
                           <span className="beads-task-id">{task.id}</span>
                           <button
