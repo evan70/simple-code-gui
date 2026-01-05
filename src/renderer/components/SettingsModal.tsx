@@ -1,7 +1,16 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useRef } from 'react'
 import { themes, getThemeById, applyTheme, Theme } from '../themes'
 import { VoiceBrowserModal } from './VoiceBrowserModal'
 import { useVoice } from '../contexts/VoiceContext'
+
+// Build sample audio URL from voice key (for Piper voices)
+function getSampleUrl(voiceKey: string): string | null {
+  // Parse key like "en_US-lessac-medium" or "de_DE-thorsten-medium"
+  const match = voiceKey.match(/^([a-z]{2})_([A-Z]{2})-(.+)-([a-z_]+)$/)
+  if (!match) return null
+  const [, lang, region, name, quality] = match
+  return `https://huggingface.co/rhasspy/piper-voices/resolve/main/${lang}/${lang}_${region}/${name}/${quality}/samples/speaker_0.mp3`
+}
 
 // Whisper models available
 const WHISPER_MODELS = [
@@ -79,6 +88,11 @@ export function SettingsModal({ isOpen, onClose, onThemeChange }: SettingsModalP
   const [xttsRepetitionPenalty, setXttsRepetitionPenalty] = useState(2.0)
   const [ttsSpeed, setTtsSpeed] = useState(1.0)
 
+  // Voice preview state
+  const [playingPreview, setPlayingPreview] = useState<string | null>(null)
+  const [previewLoading, setPreviewLoading] = useState<string | null>(null)
+  const previewAudioRef = useRef<HTMLAudioElement | null>(null)
+
   // Load installed voices (Piper and XTTS)
   const refreshInstalledVoices = async () => {
     const [piperVoices, xttsVoices] = await Promise.all([
@@ -124,6 +138,15 @@ export function SettingsModal({ isOpen, onClose, onThemeChange }: SettingsModalP
       window.electronAPI.voiceCheckWhisper?.().then(setWhisperStatus).catch(() => {})
       window.electronAPI.voiceCheckTTS?.().then(setTtsStatus).catch(() => {})
       refreshInstalledVoices()
+    } else {
+      // Stop preview when modal closes
+      if (previewAudioRef.current) {
+        previewAudioRef.current.pause()
+        previewAudioRef.current.src = ''
+        previewAudioRef.current = null
+      }
+      setPlayingPreview(null)
+      setPreviewLoading(null)
     }
   }, [isOpen])
 
@@ -207,6 +230,124 @@ export function SettingsModal({ isOpen, onClose, onThemeChange }: SettingsModalP
       console.error('Failed to install voice:', e)
     }
     setInstallingVoice(null)
+  }
+
+  // Stop any playing preview
+  const stopPreview = () => {
+    if (previewAudioRef.current) {
+      previewAudioRef.current.pause()
+      previewAudioRef.current.src = ''
+      previewAudioRef.current = null
+    }
+    setPlayingPreview(null)
+    setPreviewLoading(null)
+  }
+
+  // Preview a voice
+  const handlePreview = async (voiceKey: string, source: string) => {
+    // Stop current preview if playing
+    stopPreview()
+
+    // If clicking the same voice, just stop
+    if (playingPreview === voiceKey) {
+      return
+    }
+
+    // For XTTS voices, synthesize sample text
+    if (source === 'xtts') {
+      setPreviewLoading(voiceKey)
+      try {
+        const result = await window.electronAPI.xttsSpeak?.(
+          'Hello! This is a preview of my voice.',
+          voiceKey,
+          'en'
+        )
+        if (result?.success && result.audioData) {
+          const audio = new Audio(`data:audio/wav;base64,${result.audioData}`)
+          audio.onended = () => {
+            setPlayingPreview(null)
+            previewAudioRef.current = null
+          }
+          audio.onerror = () => {
+            setPlayingPreview(null)
+            previewAudioRef.current = null
+          }
+          previewAudioRef.current = audio
+          setPreviewLoading(null)
+          setPlayingPreview(voiceKey)
+          audio.play()
+        } else {
+          setPreviewLoading(null)
+          console.error('Failed to preview XTTS voice:', result?.error)
+        }
+      } catch (e) {
+        setPreviewLoading(null)
+        console.error('Failed to preview XTTS voice:', e)
+      }
+      return
+    }
+
+    // For Piper voices, try Hugging Face sample first
+    const sampleUrl = getSampleUrl(voiceKey)
+    if (sampleUrl) {
+      const audio = new Audio(sampleUrl)
+      audio.onended = () => {
+        setPlayingPreview(null)
+        previewAudioRef.current = null
+      }
+      audio.onerror = () => {
+        setPlayingPreview(null)
+        previewAudioRef.current = null
+      }
+      previewAudioRef.current = audio
+      setPlayingPreview(voiceKey)
+      audio.play()
+      return
+    }
+
+    // For built-in/custom Piper voices, synthesize sample text
+    setPreviewLoading(voiceKey)
+    try {
+      // Temporarily set the voice, speak, then restore
+      const originalVoice = selectedVoice
+      const originalEngine = selectedEngine
+      await window.electronAPI.voiceApplySettings?.({
+        ttsVoice: voiceKey,
+        ttsEngine: 'piper',
+        ttsSpeed: 1.0
+      })
+      const result = await window.electronAPI.voiceSpeak?.(
+        'Hello! This is a preview of my voice.'
+      )
+      // Restore original settings
+      await window.electronAPI.voiceApplySettings?.({
+        ttsVoice: originalVoice,
+        ttsEngine: originalEngine,
+        ttsSpeed
+      })
+
+      if (result?.success && result.audioData) {
+        const audio = new Audio(`data:audio/wav;base64,${result.audioData}`)
+        audio.onended = () => {
+          setPlayingPreview(null)
+          previewAudioRef.current = null
+        }
+        audio.onerror = () => {
+          setPlayingPreview(null)
+          previewAudioRef.current = null
+        }
+        previewAudioRef.current = audio
+        setPreviewLoading(null)
+        setPlayingPreview(voiceKey)
+        audio.play()
+      } else {
+        setPreviewLoading(null)
+        console.error('Failed to preview voice:', result?.error)
+      }
+    } catch (e) {
+      setPreviewLoading(null)
+      console.error('Failed to preview voice:', e)
+    }
   }
 
   if (!isOpen) return null
@@ -384,6 +525,8 @@ export function SettingsModal({ isOpen, onClose, onThemeChange }: SettingsModalP
               {installedVoices.length > 0 ? (
                 installedVoices.map((voice) => {
                   const isSelected = selectedVoice === voice.key
+                  const isPlaying = playingPreview === voice.key
+                  const isLoading = previewLoading === voice.key
                   return (
                     <div
                       key={voice.key}
@@ -397,6 +540,17 @@ export function SettingsModal({ isOpen, onClose, onThemeChange }: SettingsModalP
                           {voice.source === 'builtin' ? 'Built-in' : voice.source === 'custom' ? 'Custom' : voice.source === 'xtts' ? 'XTTS Clone' : 'Downloaded'}
                         </span>
                       </div>
+                      <button
+                        className={`voice-preview-btn ${isPlaying ? 'playing' : ''}`}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handlePreview(voice.key, voice.source)
+                        }}
+                        disabled={isLoading}
+                        title={isPlaying ? 'Stop preview' : 'Play preview'}
+                      >
+                        {isLoading ? '...' : isPlaying ? '⏹' : '▶'}
+                      </button>
                       <span className={`voice-status ${isSelected ? 'active' : 'installed'}`}>
                         {isSelected ? 'Active' : 'Installed'}
                       </span>
