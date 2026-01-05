@@ -20,6 +20,11 @@ const WHISPER_MODEL_SIZES: Record<WhisperModelSize, number> = {
   'large-v3': 3000
 }
 
+interface ProjectVoiceSettings {
+  ttsVoice?: string
+  ttsEngine?: 'piper' | 'xtts'
+}
+
 interface VoiceContextValue {
   // Voice Output (TTS)
   voiceOutputEnabled: boolean
@@ -33,6 +38,7 @@ interface VoiceContextValue {
   setSpeed: (speed: number) => void
   skipOnNew: boolean
   setSkipOnNew: (skip: boolean) => void
+  setProjectVoice: (settings: ProjectVoiceSettings | null) => void  // Per-project voice override
 
   // Voice Input (STT)
   isRecording: boolean
@@ -62,6 +68,9 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   const isProcessingRef = useRef(false)
   const voiceOutputEnabledRef = useRef(voiceOutputEnabled)
   const skipOnNewRef = useRef(skipOnNew)
+  // Per-project voice override
+  const projectVoiceRef = useRef<ProjectVoiceSettings | null>(null)
+  const globalVoiceRef = useRef<{ voice: string; engine: string } | null>(null)
 
   // Voice Input (STT) state
   const [isRecording, setIsRecording] = useState(false)
@@ -88,6 +97,15 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       }
       if (settings.voiceSkipOnNew !== undefined) setSkipOnNewState(settings.voiceSkipOnNew)
       setSettingsLoaded(true)
+    })
+    // Load global voice settings for project override feature
+    window.electronAPI.voiceGetSettings?.().then((voiceSettings) => {
+      if (voiceSettings) {
+        globalVoiceRef.current = {
+          voice: voiceSettings.ttsVoice || '',
+          engine: voiceSettings.ttsEngine || 'piper'
+        }
+      }
     })
   }, [])
 
@@ -136,6 +154,24 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     setSkipOnNewState(skip)
     saveVoiceSetting('voiceSkipOnNew', skip)
   }, [saveVoiceSetting])
+
+  // Set per-project voice override
+  const setProjectVoice = useCallback((settings: ProjectVoiceSettings | null) => {
+    projectVoiceRef.current = settings
+    // Apply project voice or restore global
+    if (settings?.ttsVoice && settings?.ttsEngine) {
+      window.electronAPI.voiceApplySettings?.({
+        ttsVoice: settings.ttsVoice,
+        ttsEngine: settings.ttsEngine
+      })
+    } else if (globalVoiceRef.current) {
+      // Restore global voice
+      window.electronAPI.voiceApplySettings?.({
+        ttsVoice: globalVoiceRef.current.voice,
+        ttsEngine: globalVoiceRef.current.engine as 'piper' | 'xtts'
+      })
+    }
+  }, [])
 
   // Process the speak queue
   const processQueue = useCallback(async () => {
@@ -435,6 +471,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       setSpeed,
       skipOnNew,
       setSkipOnNew,
+      setProjectVoice,
       // Voice Input
       isRecording,
       isModelLoading,

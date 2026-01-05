@@ -86,13 +86,32 @@ function App() {
     clearTabs
   } = useWorkspaceStore()
 
-  const { voiceOutputEnabled } = useVoice()
+  const { voiceOutputEnabled, setProjectVoice } = useVoice()
   const voiceOutputEnabledRef = useRef(voiceOutputEnabled)
 
   // Keep ref in sync for callbacks
   useEffect(() => {
     voiceOutputEnabledRef.current = voiceOutputEnabled
   }, [voiceOutputEnabled])
+
+  // Apply per-project voice settings when active tab changes
+  useEffect(() => {
+    if (!activeTabId) {
+      setProjectVoice(null)
+      return
+    }
+    const activeTab = openTabs.find(t => t.id === activeTabId)
+    if (!activeTab) {
+      setProjectVoice(null)
+      return
+    }
+    const project = projects.find(p => p.path === activeTab.projectPath)
+    if (project?.ttsVoice && project?.ttsEngine) {
+      setProjectVoice({ ttsVoice: project.ttsVoice, ttsEngine: project.ttsEngine })
+    } else {
+      setProjectVoice(null)
+    }
+  }, [activeTabId, openTabs, projects, setProjectVoice])
 
   const [loading, setLoading] = useState(true)
   const [settingsOpen, setSettingsOpen] = useState(false)

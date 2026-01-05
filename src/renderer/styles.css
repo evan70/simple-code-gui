@@ -2674,6 +2674,35 @@ html, body, #root {
   width: 180px;
 }
 
+.project-settings-modal .voice-select {
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 14px;
+  font-family: var(--font-ui);
+  cursor: pointer;
+  transition: border-color var(--transition-fast);
+}
+
+.project-settings-modal .voice-select:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.project-settings-modal .voice-select option {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  padding: var(--space-sm);
+}
+
+.project-settings-modal .voice-select optgroup {
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+
 .settings-section {
   margin-bottom: var(--space-lg);
   padding-bottom: var(--space-lg);

@@ -12,6 +12,8 @@ export interface Project {
   autoAcceptTools?: string[]  // Per-project tool patterns to auto-accept
   permissionMode?: string     // Per-project permission mode
   color?: string              // Project color for visual identification
+  ttsVoice?: string           // Per-project TTS voice (overrides global)
+  ttsEngine?: 'piper' | 'xtts'  // Per-project TTS engine
 }
 
 export interface OpenTab {

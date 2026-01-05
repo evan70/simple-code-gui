@@ -10,6 +10,8 @@ export interface Project {
   autoAcceptTools?: string[]
   permissionMode?: string
   color?: string
+  ttsVoice?: string           // Per-project TTS voice (overrides global)
+  ttsEngine?: 'piper' | 'xtts'  // Per-project TTS engine
 }
 
 export interface OpenTab {

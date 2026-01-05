@@ -114,7 +114,11 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
     permissionMode: string
     apiStatus?: 'checking' | 'success' | 'error'
     apiError?: string
+    ttsVoice: string  // empty string means use global
+    ttsEngine: 'piper' | 'xtts' | ''  // empty string means use global
   } | null>(null)
+  const [installedVoices, setInstalledVoices] = useState<Array<{ key: string; displayName: string; source: string }>>([])
+  const [globalVoiceSettings, setGlobalVoiceSettings] = useState<{ voice: string; engine: string }>({ voice: '', engine: '' })
   const [globalPermissions, setGlobalPermissions] = useState<{ tools: string[]; mode: string }>({ tools: [], mode: 'default' })
   const [apiStatus, setApiStatus] = useState<Record<string, { running: boolean; port?: number }>>({})
   const [editingProject, setEditingProject] = useState<{ path: string; name: string } | null>(null)
@@ -236,13 +240,37 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
       tools: settings.autoAcceptTools || [],
       mode: settings.permissionMode || 'default'
     })
+
+    // Load installed voices (Piper and XTTS)
+    const [piperVoices, xttsVoices, voiceSettings] = await Promise.all([
+      window.electronAPI.voiceGetInstalled?.() || [],
+      window.electronAPI.xttsGetVoices?.() || [],
+      window.electronAPI.voiceGetSettings?.() || {}
+    ])
+    const combined: Array<{ key: string; displayName: string; source: string }> = []
+    if (piperVoices) combined.push(...piperVoices)
+    if (xttsVoices) {
+      combined.push(...xttsVoices.map((v: { id: string; name: string }) => ({
+        key: v.id,
+        displayName: v.name,
+        source: 'xtts'
+      })))
+    }
+    setInstalledVoices(combined)
+    setGlobalVoiceSettings({
+      voice: voiceSettings?.ttsVoice || '',
+      engine: voiceSettings?.ttsEngine || 'piper'
+    })
+
     setProjectSettingsModal({
       project,
       apiPort: project.apiPort?.toString() || '',
       apiSessionMode: project.apiSessionMode || 'existing',
       apiModel: project.apiModel || 'default',
       tools: project.autoAcceptTools || [],
-      permissionMode: project.permissionMode || 'default'
+      permissionMode: project.permissionMode || 'default',
+      ttsVoice: project.ttsVoice || '',
+      ttsEngine: project.ttsEngine || ''
     })
     setContextMenu(null)
   }
@@ -286,7 +314,9 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
       apiSessionMode: projectSettingsModal.apiSessionMode !== 'existing' ? projectSettingsModal.apiSessionMode : undefined,
       apiModel: projectSettingsModal.apiModel !== 'default' ? projectSettingsModal.apiModel : undefined,
       autoAcceptTools: projectSettingsModal.tools.length > 0 ? projectSettingsModal.tools : undefined,
-      permissionMode: projectSettingsModal.permissionMode !== 'default' ? projectSettingsModal.permissionMode : undefined
+      permissionMode: projectSettingsModal.permissionMode !== 'default' ? projectSettingsModal.permissionMode : undefined,
+      ttsVoice: projectSettingsModal.ttsVoice || undefined,
+      ttsEngine: projectSettingsModal.ttsEngine || undefined
     })
 
     setProjectSettingsModal(null)
@@ -862,6 +892,72 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
                   <button className="btn-secondary" onClick={handleClearAll}>
                     Clear All
                   </button>
+                </div>
+              </div>
+
+              {/* Voice Settings Section */}
+              <div className="settings-section">
+                <h3>Voice</h3>
+                <p className="form-hint">Override global TTS voice for this project.</p>
+
+                <div className="form-group">
+                  <label>TTS Voice</label>
+                  {globalVoiceSettings.voice && !projectSettingsModal.ttsVoice && (
+                    <p className="form-hint global-hint">
+                      Global: {installedVoices.find(v => v.key === globalVoiceSettings.voice)?.displayName || globalVoiceSettings.voice}
+                    </p>
+                  )}
+                  <select
+                    className="voice-select"
+                    value={projectSettingsModal.ttsVoice ? `${projectSettingsModal.ttsEngine}:${projectSettingsModal.ttsVoice}` : ''}
+                    onChange={(e) => {
+                      const value = e.target.value
+                      if (!value) {
+                        setProjectSettingsModal({ ...projectSettingsModal, ttsVoice: '', ttsEngine: '' })
+                      } else {
+                        const [engine, ...voiceParts] = value.split(':')
+                        const voice = voiceParts.join(':')  // Handle voice keys that might contain colons
+                        setProjectSettingsModal({
+                          ...projectSettingsModal,
+                          ttsVoice: voice,
+                          ttsEngine: engine as 'piper' | 'xtts'
+                        })
+                      }
+                    }}
+                  >
+                    <option value="">Use global voice</option>
+                    {installedVoices.length > 0 && (
+                      <>
+                        {installedVoices.filter(v => v.source !== 'xtts').length > 0 && (
+                          <optgroup label="Piper Voices">
+                            {installedVoices
+                              .filter(v => v.source !== 'xtts')
+                              .map(v => (
+                                <option key={v.key} value={`piper:${v.key}`}>
+                                  {v.displayName}
+                                  {v.key === globalVoiceSettings.voice && globalVoiceSettings.engine === 'piper' ? ' (global)' : ''}
+                                </option>
+                              ))}
+                          </optgroup>
+                        )}
+                        {installedVoices.filter(v => v.source === 'xtts').length > 0 && (
+                          <optgroup label="XTTS Cloned Voices">
+                            {installedVoices
+                              .filter(v => v.source === 'xtts')
+                              .map(v => (
+                                <option key={v.key} value={`xtts:${v.key}`}>
+                                  {v.displayName}
+                                  {v.key === globalVoiceSettings.voice && globalVoiceSettings.engine === 'xtts' ? ' (global)' : ''}
+                                </option>
+                              ))}
+                          </optgroup>
+                        )}
+                      </>
+                    )}
+                  </select>
+                  {installedVoices.length === 0 && (
+                    <p className="form-hint">No voices installed. Install voices in Settings.</p>
+                  )}
                 </div>
               </div>
             </div>
