@@ -172,15 +172,19 @@ function App() {
               // Always install TTS instructions so Claude uses <tts> tags
               await window.electronAPI.ttsInstallInstructions?.(savedTab.projectPath)
 
-              // Check for the most recent session - it may differ from stored if user ran /clear
+              // Check if the stored session still exists - only fall back to most recent if it was deleted
               let sessionIdToRestore = savedTab.sessionId
               let titleToRestore = savedTab.title
               const sessions = await window.electronAPI.discoverSessions(savedTab.projectPath)
               if (sessions.length > 0) {
-                const mostRecent = sessions[0]
-                // Use the most recent session instead of the stored one
-                if (mostRecent.sessionId !== savedTab.sessionId) {
-                  console.log('Using more recent session:', mostRecent.sessionId, 'instead of stored:', savedTab.sessionId)
+                // Check if the stored session still exists
+                const storedSessionExists = savedTab.sessionId &&
+                  sessions.some(s => s.sessionId === savedTab.sessionId)
+
+                if (!storedSessionExists) {
+                  // Only use most recent if stored session no longer exists (e.g., after /clear)
+                  const mostRecent = sessions[0]
+                  console.log('Stored session not found, using most recent:', mostRecent.sessionId)
                   sessionIdToRestore = mostRecent.sessionId
                   const projectName = savedTab.projectPath.split(/[/\\]/).pop() || savedTab.projectPath
                   titleToRestore = `${projectName} - ${mostRecent.slug}`
