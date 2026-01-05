@@ -17,6 +17,7 @@ const piperDir = path.join(depsDir, 'piper')
 const piperVoicesDir = path.join(piperDir, 'voices')
 const customVoicesDir = path.join(piperDir, 'custom-voices')
 const openvoiceDir = path.join(depsDir, 'openvoice')
+const voiceSettingsPath = path.join(app.getPath('userData'), 'voice-settings.json')
 
 // Hugging Face API for voice catalog
 const VOICES_CATALOG_URL = 'https://huggingface.co/rhasspy/piper-voices/resolve/main/voices.json'
@@ -116,6 +117,11 @@ export interface VoiceSettings {
   microphoneId: string | null
   readBehavior: 'immediate' | 'pause' | 'manual'
   skipOnNew: boolean  // If true, interrupt current speech when new text arrives
+  // XTTS-specific settings
+  xttsTemperature: number  // 0.1-1.0, lower = more consistent, higher = more expressive (default 0.65)
+  xttsTopK: number  // 1-100, limits token selection diversity (default 50)
+  xttsTopP: number  // 0.1-1.0, nucleus sampling threshold (default 0.85)
+  xttsRepetitionPenalty: number  // 1.0-10.0, penalizes repetition (default 2.0)
 }
 
 // Voice catalog types (from Hugging Face API)
@@ -285,6 +291,55 @@ class VoiceManager {
   private currentXTTSVoice: string | null = null  // XTTS voice ID
   private currentTTSSpeed: number = 1.0
   private speakingProcess: ChildProcess | null = null
+  // XTTS quality settings
+  private xttsTemperature: number = 0.65
+  private xttsTopK: number = 50
+  private xttsTopP: number = 0.85
+  private xttsRepetitionPenalty: number = 2.0
+
+  constructor() {
+    this.loadPersistedSettings()
+  }
+
+  // Load voice settings from disk
+  private loadPersistedSettings(): void {
+    try {
+      if (fs.existsSync(voiceSettingsPath)) {
+        const data = JSON.parse(fs.readFileSync(voiceSettingsPath, 'utf-8'))
+        if (data.whisperModel) this.currentWhisperModel = data.whisperModel
+        if (data.ttsVoice) this.currentTTSVoice = data.ttsVoice
+        if (data.ttsEngine) this.currentTTSEngine = data.ttsEngine
+        if (data.xttsVoice) this.currentXTTSVoice = data.xttsVoice
+        if (data.ttsSpeed !== undefined) this.currentTTSSpeed = data.ttsSpeed
+        if (data.xttsTemperature !== undefined) this.xttsTemperature = data.xttsTemperature
+        if (data.xttsTopK !== undefined) this.xttsTopK = data.xttsTopK
+        if (data.xttsTopP !== undefined) this.xttsTopP = data.xttsTopP
+        if (data.xttsRepetitionPenalty !== undefined) this.xttsRepetitionPenalty = data.xttsRepetitionPenalty
+      }
+    } catch (e) {
+      console.error('Failed to load voice settings:', e)
+    }
+  }
+
+  // Save voice settings to disk
+  private savePersistedSettings(): void {
+    try {
+      const data = {
+        whisperModel: this.currentWhisperModel,
+        ttsVoice: this.currentTTSVoice,
+        ttsEngine: this.currentTTSEngine,
+        xttsVoice: this.currentXTTSVoice,
+        ttsSpeed: this.currentTTSSpeed,
+        xttsTemperature: this.xttsTemperature,
+        xttsTopK: this.xttsTopK,
+        xttsTopP: this.xttsTopP,
+        xttsRepetitionPenalty: this.xttsRepetitionPenalty
+      }
+      fs.writeFileSync(voiceSettingsPath, JSON.stringify(data, null, 2))
+    } catch (e) {
+      console.error('Failed to save voice settings:', e)
+    }
+  }
 
   // ==================== WHISPER (STT) ====================
 
@@ -499,11 +554,13 @@ class VoiceManager {
       // Set XTTS voice
       this.currentXTTSVoice = voice
       this.currentTTSEngine = 'xtts'
+      this.savePersistedSettings()
     } else {
       // Support built-in, downloaded, and custom Piper voices
       if (this.getAnyVoicePath(voice)) {
         this.currentTTSVoice = voice
         this.currentTTSEngine = 'piper'
+        this.savePersistedSettings()
       }
     }
   }
@@ -524,12 +581,15 @@ class VoiceManager {
   // Speak text using the current TTS engine
   // Returns the audio data as base64
   async speak(text: string): Promise<{ success: boolean; audioData?: string; error?: string }> {
-    // Route to XTTS if that's the current engine
-    if (this.currentTTSEngine === 'xtts') {
-      if (!this.currentXTTSVoice) {
-        return { success: false, error: 'No XTTS voice selected' }
-      }
-      return xttsManager.speak(text, this.currentXTTSVoice)
+    // Route to XTTS if that's the current engine AND we have an XTTS voice selected
+    if (this.currentTTSEngine === 'xtts' && this.currentXTTSVoice) {
+      return xttsManager.speak(text, this.currentXTTSVoice, undefined, {
+        temperature: this.xttsTemperature,
+        speed: this.currentTTSSpeed,
+        topK: this.xttsTopK,
+        topP: this.xttsTopP,
+        repetitionPenalty: this.xttsRepetitionPenalty
+      })
     }
 
     // Use Piper TTS
@@ -890,14 +950,24 @@ class VoiceManager {
   // ==================== SETTINGS ====================
 
   getSettings(): VoiceSettings {
+    // Return the active voice based on current engine
+    // When engine is XTTS, return the XTTS voice; otherwise return Piper voice
+    const activeVoice = this.currentTTSEngine === 'xtts' && this.currentXTTSVoice
+      ? this.currentXTTSVoice
+      : this.currentTTSVoice
+
     return {
       whisperModel: this.currentWhisperModel,
       ttsEngine: this.currentTTSEngine,
-      ttsVoice: this.currentTTSVoice,
+      ttsVoice: activeVoice,
       ttsSpeed: this.currentTTSSpeed,
       microphoneId: null, // Retrieved from renderer
       readBehavior: 'immediate',
-      skipOnNew: false
+      skipOnNew: false,
+      xttsTemperature: this.xttsTemperature,
+      xttsTopK: this.xttsTopK,
+      xttsTopP: this.xttsTopP,
+      xttsRepetitionPenalty: this.xttsRepetitionPenalty
     }
   }
 
@@ -909,11 +979,27 @@ class VoiceManager {
       this.setTTSEngine(settings.ttsEngine)
     }
     if (settings.ttsVoice) {
-      this.setTTSVoice(settings.ttsVoice)
+      // Pass engine so XTTS voices get set to currentXTTSVoice
+      this.setTTSVoice(settings.ttsVoice, settings.ttsEngine)
     }
     if (settings.ttsSpeed !== undefined) {
       this.setTTSSpeed(settings.ttsSpeed)
     }
+    // XTTS quality settings
+    if (settings.xttsTemperature !== undefined) {
+      this.xttsTemperature = Math.max(0.1, Math.min(1.0, settings.xttsTemperature))
+    }
+    if (settings.xttsTopK !== undefined) {
+      this.xttsTopK = Math.max(1, Math.min(100, Math.round(settings.xttsTopK)))
+    }
+    if (settings.xttsTopP !== undefined) {
+      this.xttsTopP = Math.max(0.1, Math.min(1.0, settings.xttsTopP))
+    }
+    if (settings.xttsRepetitionPenalty !== undefined) {
+      this.xttsRepetitionPenalty = Math.max(1.0, Math.min(10.0, settings.xttsRepetitionPenalty))
+    }
+    // Persist settings to disk
+    this.savePersistedSettings()
   }
 }
 

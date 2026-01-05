@@ -102,12 +102,16 @@ function ensureDir(dir: string): void {
   }
 }
 
-// Python helper script content
+// Python helper script content - runs as a persistent server to keep model loaded
 const XTTS_HELPER_SCRIPT = `#!/usr/bin/env python3
-"""XTTS-v2 helper script for Claude Terminal"""
+"""XTTS-v2 helper script for Claude Terminal - Server Mode"""
 import sys
 import json
 import os
+
+# Global TTS instance to keep model loaded
+_tts = None
+_device = None
 
 def check_installation():
     """Check if TTS library is installed"""
@@ -118,28 +122,106 @@ def check_installation():
     except ImportError as e:
         return {"installed": False, "error": str(e)}
 
-def speak(text, reference_audio, language, output_path):
-    """Generate speech using XTTS-v2 voice cloning"""
-    try:
+def get_tts():
+    """Get or create TTS instance (loads model once)"""
+    global _tts, _device
+    if _tts is None:
         import torch
         from TTS.api import TTS
 
-        device = "cuda" if torch.cuda.is_available() else "cpu"
+        # Check if user wants to force CPU mode
+        force_cpu = os.environ.get("XTTS_FORCE_CPU", "").lower() in ("1", "true", "yes")
 
-        # Initialize TTS (downloads model on first run ~2GB)
-        tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(device)
+        # Try CUDA first, fall back to CPU if OOM or other CUDA errors
+        if not force_cpu and torch.cuda.is_available():
+            try:
+                _device = "cuda"
+                _tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(_device)
+            except (torch.cuda.OutOfMemoryError, RuntimeError) as e:
+                # CUDA failed, fall back to CPU
+                if _tts is not None:
+                    del _tts
+                torch.cuda.empty_cache()
+                _device = "cpu"
+                _tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(_device)
+        else:
+            _device = "cpu"
+            _tts = TTS("tts_models/multilingual/multi-dataset/xtts_v2").to(_device)
+    return _tts, _device
 
-        # Generate speech
-        tts.tts_to_file(
-            text=text,
-            speaker_wav=reference_audio,
-            language=language,
-            file_path=output_path
-        )
-
+def speak(text, reference_audio, language, output_path, temperature=0.65, speed=1.0, top_k=50, top_p=0.85, repetition_penalty=2.0):
+    """Generate speech using XTTS-v2 voice cloning"""
+    try:
+        tts, device = get_tts()
+        # Build kwargs, only including supported parameters
+        # Some TTS versions don't support all parameters
+        kwargs = {
+            "text": text,
+            "speaker_wav": reference_audio,
+            "language": language,
+            "file_path": output_path,
+        }
+        # Try with all parameters first, fall back to basic call if it fails
+        try:
+            tts.tts_to_file(
+                **kwargs,
+                temperature=float(temperature),
+                speed=float(speed),
+                top_k=int(top_k),
+                top_p=float(top_p),
+                repetition_penalty=float(repetition_penalty)
+            )
+        except (TypeError, ValueError) as param_error:
+            # Some parameters might not be supported, try without them
+            sys.stderr.write(f"Parameter error, trying basic call: {param_error}\\n")
+            sys.stderr.flush()
+            tts.tts_to_file(**kwargs)
         return {"success": True, "path": output_path, "device": device}
     except Exception as e:
         return {"success": False, "error": str(e)}
+
+def run_server():
+    """Run as a server, reading JSON commands from stdin"""
+    sys.stdout.write(json.dumps({"status": "ready"}) + "\\n")
+    sys.stdout.flush()
+
+    for line in sys.stdin:
+        try:
+            cmd = json.loads(line.strip())
+            action = cmd.get("action")
+
+            if action == "speak":
+                result = speak(
+                    cmd.get("text", ""),
+                    cmd.get("reference_audio", ""),
+                    cmd.get("language", "en"),
+                    cmd.get("output_path", ""),
+                    temperature=cmd.get("temperature", 0.65),
+                    speed=cmd.get("speed", 1.0),
+                    top_k=cmd.get("top_k", 50),
+                    top_p=cmd.get("top_p", 0.85),
+                    repetition_penalty=cmd.get("repetition_penalty", 2.0)
+                )
+            elif action == "check":
+                result = check_installation()
+            elif action == "ping":
+                result = {"status": "alive"}
+            elif action == "quit":
+                result = {"status": "goodbye"}
+                sys.stdout.write(json.dumps(result) + "\\n")
+                sys.stdout.flush()
+                break
+            else:
+                result = {"error": f"Unknown action: {action}"}
+
+            sys.stdout.write(json.dumps(result) + "\\n")
+            sys.stdout.flush()
+        except json.JSONDecodeError as e:
+            sys.stdout.write(json.dumps({"error": f"Invalid JSON: {e}"}) + "\\n")
+            sys.stdout.flush()
+        except Exception as e:
+            sys.stdout.write(json.dumps({"error": str(e)}) + "\\n")
+            sys.stdout.flush()
 
 def main():
     if len(sys.argv) < 2:
@@ -150,15 +232,19 @@ def main():
 
     if cmd == "check":
         result = check_installation()
+        print(json.dumps(result))
+    elif cmd == "server":
+        run_server()
     elif cmd == "speak":
+        # Legacy single-shot mode (for backwards compatibility)
         if len(sys.argv) < 6:
             result = {"error": "Usage: speak <text> <reference_audio> <language> <output_path>"}
         else:
             result = speak(sys.argv[2], sys.argv[3], sys.argv[4], sys.argv[5])
+        print(json.dumps(result))
     else:
         result = {"error": f"Unknown command: {cmd}"}
-
-    print(json.dumps(result))
+        print(json.dumps(result))
 
 if __name__ == "__main__":
     main()
@@ -167,9 +253,169 @@ if __name__ == "__main__":
 class XTTSManager {
   private pythonPath: string | null = null
   private speakingProcess: ChildProcess | null = null
+  private serverProcess: ChildProcess | null = null
+  private serverReady: boolean = false
+  private serverStarting: Promise<boolean> | null = null
+  private pendingRequests: Map<string, { resolve: (result: any) => void; reject: (err: Error) => void }> = new Map()
+  private responseBuffer: string = ''
 
   constructor() {
     this.initPythonPath()
+  }
+
+  // Start the XTTS server process
+  private async startServer(): Promise<boolean> {
+    // If already starting, wait for it
+    if (this.serverStarting) {
+      return this.serverStarting
+    }
+
+    // If already running, return true
+    if (this.serverProcess && this.serverReady) {
+      return true
+    }
+
+    this.serverStarting = this._startServerInternal()
+    const result = await this.serverStarting
+    this.serverStarting = null
+    return result
+  }
+
+  private async _startServerInternal(): Promise<boolean> {
+    // Use venv Python if available
+    const venvPython = getVenvPython()
+    const pythonToUse = fs.existsSync(venvPython) ? venvPython : this.pythonPath
+
+    if (!pythonToUse) {
+      return false
+    }
+
+    this.ensureHelperScript()
+
+    return new Promise((resolve) => {
+      const proc = spawn(pythonToUse, [xttsScriptPath, 'server'])
+      this.serverProcess = proc
+      this.serverReady = false
+      this.responseBuffer = ''
+
+      proc.stdout.on('data', (data) => {
+        this.responseBuffer += data.toString()
+
+        // Process complete lines
+        const lines = this.responseBuffer.split('\n')
+        this.responseBuffer = lines.pop() || '' // Keep incomplete line in buffer
+
+        for (const line of lines) {
+          if (!line.trim()) continue
+
+          try {
+            const response = JSON.parse(line)
+
+            // Check for server ready message
+            if (response.status === 'ready') {
+              this.serverReady = true
+              resolve(true)
+              continue
+            }
+
+            // Handle response to pending request
+            // Since we process requests sequentially, take the oldest one
+            const [requestId, handlers] = this.pendingRequests.entries().next().value || []
+            if (requestId && handlers) {
+              this.pendingRequests.delete(requestId)
+              handlers.resolve(response)
+            }
+          } catch (e) {
+            console.error('XTTS server parse error:', e, 'line:', line)
+          }
+        }
+      })
+
+      proc.stderr.on('data', (data) => {
+        // Log stderr but don't treat as error (PyTorch often writes info to stderr)
+        console.log('XTTS server:', data.toString())
+      })
+
+      proc.on('close', (code) => {
+        this.serverProcess = null
+        this.serverReady = false
+
+        // Reject any pending requests
+        for (const [, handlers] of this.pendingRequests) {
+          handlers.reject(new Error(`Server exited with code ${code}`))
+        }
+        this.pendingRequests.clear()
+
+        // If we were waiting for ready, resolve false
+        if (!this.serverReady) {
+          resolve(false)
+        }
+      })
+
+      proc.on('error', (err) => {
+        this.serverProcess = null
+        this.serverReady = false
+        resolve(false)
+      })
+
+      // Timeout for server startup (model loading can take a while)
+      setTimeout(() => {
+        if (!this.serverReady) {
+          console.error('XTTS server startup timeout')
+          this.stopServer()
+          resolve(false)
+        }
+      }, 120000) // 2 minute timeout for model loading
+    })
+  }
+
+  private stopServer(): void {
+    if (this.serverProcess) {
+      // Try graceful shutdown first
+      try {
+        this.serverProcess.stdin?.write(JSON.stringify({ action: 'quit' }) + '\n')
+      } catch {
+        // Ignore write errors
+      }
+
+      // Force kill after short delay
+      setTimeout(() => {
+        if (this.serverProcess) {
+          this.serverProcess.kill()
+          this.serverProcess = null
+        }
+      }, 1000)
+    }
+    this.serverReady = false
+  }
+
+  private async sendServerCommand(command: object): Promise<any> {
+    if (!this.serverProcess || !this.serverReady) {
+      const started = await this.startServer()
+      if (!started) {
+        throw new Error('Failed to start XTTS server')
+      }
+    }
+
+    return new Promise((resolve, reject) => {
+      const requestId = `${Date.now()}-${Math.random()}`
+      this.pendingRequests.set(requestId, { resolve, reject })
+
+      try {
+        this.serverProcess!.stdin?.write(JSON.stringify(command) + '\n')
+      } catch (err: any) {
+        this.pendingRequests.delete(requestId)
+        reject(err)
+      }
+
+      // Timeout for individual requests
+      setTimeout(() => {
+        if (this.pendingRequests.has(requestId)) {
+          this.pendingRequests.delete(requestId)
+          reject(new Error('Request timeout'))
+        }
+      }, 300000) // 5 minute timeout for TTS generation
+    })
   }
 
   private async initPythonPath(): Promise<void> {
@@ -225,11 +471,10 @@ class XTTSManager {
 
   private ensureHelperScript(): void {
     ensureDir(xttsDir)
-    if (!fs.existsSync(xttsScriptPath)) {
-      fs.writeFileSync(xttsScriptPath, XTTS_HELPER_SCRIPT)
-      if (!isWindows) {
-        fs.chmodSync(xttsScriptPath, 0o755)
-      }
+    // Always write the script to ensure we have the latest version (server mode)
+    fs.writeFileSync(xttsScriptPath, XTTS_HELPER_SCRIPT)
+    if (!isWindows) {
+      fs.chmodSync(xttsScriptPath, 0o755)
     }
   }
 
@@ -410,6 +655,10 @@ class XTTSManager {
       await execAsync(`"${venvPython}" -m pip install coqui-tts`, {
         timeout: 900000  // 15 minutes - it's a large package with many dependencies
       })
+
+      // Install torchcodec (required for audio loading in newer TTS versions)
+      onProgress?.('Installing audio codec...', 90)
+      await execAsync(`"${venvPython}" -m pip install torchcodec`, { timeout: 120000 })
       onProgress?.('TTS library installed', 95)
 
       // Verify installation
@@ -516,97 +765,55 @@ class XTTSManager {
   async speak(
     text: string,
     voiceId: string,
-    language?: XTTSLanguage
+    language?: XTTSLanguage,
+    options?: {
+      temperature?: number
+      speed?: number
+      topK?: number
+      topP?: number
+      repetitionPenalty?: number
+    }
   ): Promise<{ success: boolean; audioData?: string; error?: string }> {
     const voice = this.getVoice(voiceId)
     if (!voice) {
       return { success: false, error: 'Voice not found' }
     }
 
-    // Use venv Python if available, otherwise system Python
-    const venvPython = getVenvPython()
-    const pythonToUse = fs.existsSync(venvPython) ? venvPython : this.pythonPath
-
-    if (!pythonToUse) {
-      return { success: false, error: 'Python not found' }
-    }
-
-    this.ensureHelperScript()
-
     try {
       const tempDir = app.getPath('temp')
       const outputPath = path.join(tempDir, `xtts_${Date.now()}.wav`)
       const lang = language || voice.language
 
-      return new Promise((resolve) => {
-        const args = [
-          xttsScriptPath,
-          'speak',
-          text,
-          voice.referencePath,
-          lang,
-          outputPath
-        ]
-
-        const proc = spawn(pythonToUse, args)
-        this.speakingProcess = proc
-
-        let stdout = ''
-        let stderr = ''
-
-        proc.stdout.on('data', (data) => {
-          stdout += data.toString()
-        })
-
-        proc.stderr.on('data', (data) => {
-          stderr += data.toString()
-        })
-
-        proc.on('close', (code) => {
-          this.speakingProcess = null
-
-          if (code === 0 && fs.existsSync(outputPath)) {
-            try {
-              const result = JSON.parse(stdout.trim())
-              if (result.success) {
-                const audioBuffer = fs.readFileSync(outputPath)
-                const audioData = audioBuffer.toString('base64')
-                fs.unlinkSync(outputPath)
-                resolve({ success: true, audioData })
-              } else {
-                resolve({ success: false, error: result.error })
-              }
-            } catch {
-              // If we can't parse JSON but file exists, still return it
-              if (fs.existsSync(outputPath)) {
-                const audioBuffer = fs.readFileSync(outputPath)
-                const audioData = audioBuffer.toString('base64')
-                fs.unlinkSync(outputPath)
-                resolve({ success: true, audioData })
-              } else {
-                resolve({ success: false, error: stderr || 'Unknown error' })
-              }
-            }
-          } else {
-            resolve({ success: false, error: stderr || `Process exited with code ${code}` })
-          }
-        })
-
-        proc.on('error', (err) => {
-          this.speakingProcess = null
-          resolve({ success: false, error: err.message })
-        })
+      // Use persistent server for TTS (keeps model loaded in memory)
+      const result = await this.sendServerCommand({
+        action: 'speak',
+        text,
+        reference_audio: voice.referencePath,
+        language: lang,
+        output_path: outputPath,
+        temperature: options?.temperature ?? 0.65,
+        speed: options?.speed ?? 1.0,
+        top_k: options?.topK ?? 50,
+        top_p: options?.topP ?? 0.85,
+        repetition_penalty: options?.repetitionPenalty ?? 2.0
       })
+
+      if (result.success && fs.existsSync(outputPath)) {
+        const audioBuffer = fs.readFileSync(outputPath)
+        const audioData = audioBuffer.toString('base64')
+        fs.unlinkSync(outputPath)
+        return { success: true, audioData }
+      } else {
+        return { success: false, error: result.error || 'TTS generation failed' }
+      }
     } catch (e: any) {
       return { success: false, error: e.message }
     }
   }
 
   stopSpeaking(): void {
-    if (this.speakingProcess) {
-      this.speakingProcess.kill()
-      this.speakingProcess = null
-    }
+    // Stop the server (which stops any in-progress generation)
+    this.stopServer()
   }
 
   getVoicesDir(): string {
@@ -747,6 +954,86 @@ class XTTSManager {
   isSampleVoiceInstalled(sampleId: string): boolean {
     const voiceDir = path.join(xttsVoicesDir, sampleId)
     return fs.existsSync(path.join(voiceDir, 'metadata.json'))
+  }
+
+  // ==================== AUDIO PROCESSING ====================
+
+  // Get audio/video duration using ffprobe
+  async getMediaDuration(filePath: string): Promise<{ success: boolean; duration?: number; error?: string }> {
+    try {
+      const { stdout } = await execAsync(
+        `ffprobe -v error -show_entries format=duration -of default=noprint_wrappers=1:nokey=1 "${filePath}"`,
+        { timeout: 30000 }
+      )
+      const duration = parseFloat(stdout.trim())
+      if (isNaN(duration)) {
+        return { success: false, error: 'Could not determine duration' }
+      }
+      return { success: true, duration }
+    } catch (e: any) {
+      // Check if ffmpeg/ffprobe is installed
+      if (e.message.includes('not found') || e.message.includes('ENOENT')) {
+        return { success: false, error: 'ffmpeg not found. Please install ffmpeg to use this feature.' }
+      }
+      return { success: false, error: e.message }
+    }
+  }
+
+  // Extract audio clip from video/audio file
+  async extractAudioClip(
+    inputPath: string,
+    startTime: number,
+    endTime: number,
+    outputPath?: string
+  ): Promise<{ success: boolean; outputPath?: string; dataUrl?: string; error?: string }> {
+    try {
+      const duration = endTime - startTime
+      if (duration <= 0) {
+        return { success: false, error: 'End time must be greater than start time' }
+      }
+      if (duration < 3) {
+        return { success: false, error: 'Clip must be at least 3 seconds long' }
+      }
+      if (duration > 30) {
+        return { success: false, error: 'Clip should be 30 seconds or less for best results' }
+      }
+
+      // Generate output path if not provided
+      const outPath = outputPath || path.join(app.getPath('temp'), `xtts_clip_${Date.now()}.wav`)
+
+      // Extract audio with ffmpeg
+      // -y: overwrite output
+      // -ss: start time
+      // -t: duration
+      // -vn: no video
+      // -acodec pcm_s16le: WAV format
+      // -ar 22050: sample rate (XTTS expects this)
+      // -ac 1: mono
+      await execAsync(
+        `ffmpeg -y -ss ${startTime} -t ${duration} -i "${inputPath}" -vn -acodec pcm_s16le -ar 22050 -ac 1 "${outPath}"`,
+        { timeout: 60000 }
+      )
+
+      if (!fs.existsSync(outPath)) {
+        return { success: false, error: 'Failed to extract audio' }
+      }
+
+      // Read file and convert to base64 data URL for renderer
+      const audioData = fs.readFileSync(outPath)
+      const dataUrl = `data:audio/wav;base64,${audioData.toString('base64')}`
+
+      return { success: true, outputPath: outPath, dataUrl }
+    } catch (e: any) {
+      if (e.message.includes('not found') || e.message.includes('ENOENT')) {
+        return { success: false, error: 'ffmpeg not found. Please install ffmpeg to use this feature.' }
+      }
+      return { success: false, error: e.message }
+    }
+  }
+
+  // Get temp directory for audio clips
+  getTempDir(): string {
+    return app.getPath('temp')
   }
 }
 

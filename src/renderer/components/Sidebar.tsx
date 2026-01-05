@@ -94,6 +94,12 @@ interface SidebarProps {
 
 export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onAddProject, onRemoveProject, onOpenSession, onSwitchToTab, onOpenSettings, onOpenMakeProject, onUpdateProject, onCloseProjectTabs, width, collapsed, onWidthChange, onCollapsedChange }: SidebarProps) {
   const { volume, setVolume, speed, setSpeed, skipOnNew, setSkipOnNew, voiceOutputEnabled } = useVoice()
+
+  // Ref to always have latest activeTabId for voice transcription callback
+  const activeTabIdRef = useRef(activeTabId)
+  useEffect(() => {
+    activeTabIdRef.current = activeTabId
+  }, [activeTabId])
   const [expandedProject, setExpandedProject] = useState<string | null>(null)
   const [sessions, setSessions] = useState<Record<string, ClaudeSession[]>>({})
   const [beadsExpanded, setBeadsExpanded] = useState(true)
@@ -552,8 +558,14 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
         <VoiceControls
           activeTabId={activeTabId}
           onTranscription={(text) => {
-            if (activeTabId) {
-              window.electronAPI.writePty(activeTabId, text + '\n')
+            // Use ref to always get current active tab, not the one when recording started
+            const currentTabId = activeTabIdRef.current
+            if (currentTabId) {
+              // Send text first, then carriage return after delay (like API does)
+              window.electronAPI.writePty(currentTabId, text)
+              setTimeout(() => {
+                window.electronAPI.writePty(currentTabId, '\r')
+              }, 100)
             }
           }}
         />

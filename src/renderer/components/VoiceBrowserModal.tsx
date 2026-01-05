@@ -82,6 +82,14 @@ export function VoiceBrowserModal({ isOpen, onClose, onVoiceSelect }: VoiceBrows
   const [creatingXtts, setCreatingXtts] = useState(false)
   const [installingXtts, setInstallingXtts] = useState(false)
 
+  // Audio cropping state
+  const [mediaPath, setMediaPath] = useState('')
+  const [mediaDuration, setMediaDuration] = useState(0)
+  const [cropStart, setCropStart] = useState(0)
+  const [cropEnd, setCropEnd] = useState(0)
+  const [extracting, setExtracting] = useState(false)
+  const [cropPreviewAudio, setCropPreviewAudio] = useState<HTMLAudioElement | null>(null)
+
   // Load catalog and installed voices
   useEffect(() => {
     if (isOpen) {
@@ -388,6 +396,88 @@ export function VoiceBrowserModal({ isOpen, onClose, onVoiceSelect }: VoiceBrows
     }
   }
 
+  // Format seconds to MM:SS
+  const formatTime = (seconds: number): string => {
+    const mins = Math.floor(seconds / 60)
+    const secs = Math.floor(seconds % 60)
+    return `${mins}:${secs.toString().padStart(2, '0')}`
+  }
+
+  // Select media file for cropping
+  const handleSelectMedia = async () => {
+    const result = await window.electronAPI.xttsSelectMediaFile()
+    if (result.success && result.path) {
+      setMediaPath(result.path)
+      setMediaDuration(result.duration || 0)
+      setCropStart(0)
+      setCropEnd(Math.min(result.duration || 30, 30)) // Default to first 30 seconds
+    }
+  }
+
+  // Preview the cropped section
+  const handleCropPreview = async () => {
+    if (!mediaPath || cropStart >= cropEnd) return
+
+    // Stop existing preview
+    if (cropPreviewAudio) {
+      cropPreviewAudio.pause()
+      cropPreviewAudio.src = ''
+      setCropPreviewAudio(null)
+    }
+
+    // Extract clip to temp file
+    setExtracting(true)
+    try {
+      const result = await window.electronAPI.xttsExtractAudioClip(mediaPath, cropStart, cropEnd)
+      if (result.success && result.dataUrl) {
+        // Play the extracted clip using data URL
+        const audio = new Audio(result.dataUrl)
+        audio.onended = () => {
+          setCropPreviewAudio(null)
+        }
+        audio.play()
+        setCropPreviewAudio(audio)
+      } else {
+        setError(result.error || 'Failed to extract audio clip')
+      }
+    } catch (e: any) {
+      setError(e.message || 'Failed to extract audio clip')
+    }
+    setExtracting(false)
+  }
+
+  // Stop crop preview
+  const handleStopCropPreview = () => {
+    if (cropPreviewAudio) {
+      cropPreviewAudio.pause()
+      cropPreviewAudio.src = ''
+      setCropPreviewAudio(null)
+    }
+  }
+
+  // Use cropped audio as reference
+  const handleUseCroppedAudio = async () => {
+    if (!mediaPath || cropStart >= cropEnd) return
+
+    setExtracting(true)
+    try {
+      const result = await window.electronAPI.xttsExtractAudioClip(mediaPath, cropStart, cropEnd)
+      if (result.success && result.outputPath) {
+        setCreateXttsAudioPath(result.outputPath)
+        // Clear media cropping state
+        setMediaPath('')
+        setMediaDuration(0)
+        setCropStart(0)
+        setCropEnd(0)
+      } else {
+        setError(result.error || 'Failed to extract audio clip')
+      }
+    } catch (e: any) {
+      setError(e.message || 'Failed to extract audio clip')
+    }
+    setExtracting(false)
+  }
+
   // Create XTTS voice
   const handleCreateXtts = async () => {
     if (!createXttsName.trim() || !createXttsAudioPath) return
@@ -593,14 +683,114 @@ export function VoiceBrowserModal({ isOpen, onClose, onVoiceSelect }: VoiceBrows
                       ))}
                     </select>
                   </div>
+
+                  {/* Audio source section */}
                   <div className="form-group">
-                    <label>Reference Audio (6+ seconds)</label>
+                    <label>Reference Audio (6-30 seconds recommended)</label>
+
+                    {/* Option 1: Direct audio file */}
                     <div className="audio-select-row">
                       <input type="text" value={createXttsAudioPath} readOnly placeholder="Select an audio file..." />
                       <button className="btn-secondary" onClick={handleSelectAudio}>
                         Browse...
                       </button>
                     </div>
+
+                    {/* Option 2: Import from video/audio and crop */}
+                    <div className="audio-crop-section">
+                      <div className="audio-crop-header">
+                        <span className="note-text">Or extract from video/audio:</span>
+                        <button className="btn-secondary btn-small" onClick={handleSelectMedia}>
+                          Import Media...
+                        </button>
+                      </div>
+
+                      {mediaPath && (
+                        <div className="audio-crop-controls">
+                          <div className="crop-file-info">
+                            <span className="crop-filename">{mediaPath.split('/').pop()}</span>
+                            <span className="crop-duration">Duration: {formatTime(mediaDuration)}</span>
+                          </div>
+
+                          {/* Visual range slider for clip selection */}
+                          <div className="crop-range-container">
+                            <div className="crop-range-labels">
+                              <span>{formatTime(cropStart)}</span>
+                              <span className="crop-length-badge">{formatTime(cropEnd - cropStart)}</span>
+                              <span>{formatTime(cropEnd)}</span>
+                            </div>
+                            <div className="crop-range-track">
+                              <div
+                                className="crop-range-selection"
+                                style={{
+                                  left: `${(cropStart / mediaDuration) * 100}%`,
+                                  width: `${((cropEnd - cropStart) / mediaDuration) * 100}%`
+                                }}
+                              />
+                              <input
+                                type="range"
+                                className="crop-range-input crop-range-start"
+                                min={0}
+                                max={mediaDuration}
+                                step={0.1}
+                                value={cropStart}
+                                onChange={(e) => {
+                                  const val = parseFloat(e.target.value)
+                                  if (val < cropEnd - 3) setCropStart(Math.max(0, val))
+                                }}
+                              />
+                              <input
+                                type="range"
+                                className="crop-range-input crop-range-end"
+                                min={0}
+                                max={mediaDuration}
+                                step={0.1}
+                                value={cropEnd}
+                                onChange={(e) => {
+                                  const val = parseFloat(e.target.value)
+                                  if (val > cropStart + 3) setCropEnd(Math.min(mediaDuration, val))
+                                }}
+                              />
+                            </div>
+                            <div className="crop-range-ticks">
+                              <span>0:00</span>
+                              <span>{formatTime(mediaDuration / 2)}</span>
+                              <span>{formatTime(mediaDuration)}</span>
+                            </div>
+                          </div>
+
+                          <div className="crop-actions">
+                            {cropPreviewAudio ? (
+                              <button className="btn-secondary btn-small" onClick={handleStopCropPreview}>
+                                ⏹ Stop
+                              </button>
+                            ) : (
+                              <button
+                                className="btn-secondary btn-small"
+                                onClick={handleCropPreview}
+                                disabled={extracting || cropStart >= cropEnd}
+                              >
+                                {extracting ? 'Extracting...' : '▶ Preview'}
+                              </button>
+                            )}
+                            <button
+                              className="btn-primary btn-small"
+                              onClick={handleUseCroppedAudio}
+                              disabled={extracting || cropStart >= cropEnd}
+                            >
+                              Use This Clip
+                            </button>
+                            <button
+                              className="btn-secondary btn-small"
+                              onClick={() => { setMediaPath(''); setMediaDuration(0); }}
+                            >
+                              Clear
+                            </button>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+
                     <p className="note-text">Use a clean recording of the voice you want to clone</p>
                   </div>
                   <div className="dialog-actions">

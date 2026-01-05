@@ -1632,6 +1632,152 @@ html, body, #root {
   flex: 1;
 }
 
+/* Audio cropping section */
+.audio-crop-section {
+  margin-top: var(--space-md);
+  padding-top: var(--space-md);
+  border-top: 1px solid var(--border);
+}
+
+.audio-crop-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-md);
+}
+
+.audio-crop-controls {
+  margin-top: var(--space-md);
+  padding: var(--space-md);
+  background: var(--bg-secondary);
+  border-radius: 6px;
+}
+
+.crop-file-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: var(--space-md);
+}
+
+.crop-filename {
+  font-size: 13px;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+
+.crop-duration {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}
+
+/* Dual-handle range slider for audio cropping */
+.crop-range-container {
+  margin-bottom: var(--space-md);
+}
+
+.crop-range-labels {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  font-family: monospace;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+
+.crop-length-badge {
+  background: var(--accent);
+  color: white;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.crop-range-track {
+  position: relative;
+  height: 24px;
+  background: var(--bg-tertiary);
+  border-radius: 4px;
+  margin: 8px 0;
+}
+
+.crop-range-selection {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  background: linear-gradient(to bottom, var(--accent), rgba(99, 102, 241, 0.7));
+  border-radius: 4px;
+  pointer-events: none;
+}
+
+.crop-range-input {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  -webkit-appearance: none;
+  appearance: none;
+  background: transparent;
+  pointer-events: none;
+  margin: 0;
+}
+
+.crop-range-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 28px;
+  background: var(--bg-primary);
+  border: 2px solid var(--accent);
+  border-radius: 4px;
+  cursor: ew-resize;
+  pointer-events: auto;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+}
+
+.crop-range-input::-webkit-slider-thumb:hover {
+  background: var(--accent);
+  border-color: white;
+}
+
+.crop-range-input::-moz-range-thumb {
+  width: 14px;
+  height: 24px;
+  background: var(--bg-primary);
+  border: 2px solid var(--accent);
+  border-radius: 4px;
+  cursor: ew-resize;
+  pointer-events: auto;
+}
+
+.crop-range-input::-moz-range-thumb:hover {
+  background: var(--accent);
+  border-color: white;
+}
+
+.crop-range-ticks {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-tertiary);
+}
+
+.crop-actions {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.btn-small {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
 .note-text {
   font-size: 12px;
   color: var(--text-tertiary);
@@ -3367,8 +3513,18 @@ html, body, #root {
 }
 
 .voice-option.installed {
-  border-color: var(--success);
-  background: rgba(34, 197, 94, 0.1);
+  border-color: var(--border-color);
+  background: var(--bg-secondary);
+}
+
+.voice-option.installed:hover {
+  border-color: var(--text-secondary);
+  background: var(--bg-tertiary);
+}
+
+.voice-option.installed.selected {
+  border-color: var(--accent);
+  background: rgba(99, 102, 241, 0.15);
 }
 
 .voice-info {
@@ -3390,14 +3546,89 @@ html, body, #root {
 
 .voice-status.installed {
   font-size: 12px;
-  color: var(--success);
+  color: var(--text-tertiary);
   font-weight: 500;
+}
+
+.voice-status.active {
+  font-size: 12px;
+  color: var(--accent);
+  font-weight: 600;
 }
 
 .voice-option .voice-install-btn {
   width: auto;
   padding: 6px 12px;
   font-size: 11px;
+}
+
+/* Slider controls for voice settings */
+.slider-group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.slider-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.slider-header label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+.slider-value {
+  font-size: 12px;
+  color: var(--accent);
+  font-weight: 600;
+  min-width: 40px;
+  text-align: right;
+}
+
+.slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: var(--bg-tertiary);
+  outline: none;
+  cursor: pointer;
+}
+
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+
+.slider::-webkit-slider-thumb:hover {
+  transform: scale(1.2);
+}
+
+.slider::-moz-range-thumb {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  cursor: pointer;
+  border: none;
+}
+
+.slider-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 10px;
+  color: var(--text-tertiary);
 }
 
 /* Recording animation for voice input */

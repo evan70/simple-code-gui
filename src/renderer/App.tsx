@@ -168,19 +168,34 @@ function App() {
           const openSessionIds = new Set(currentTabs.map(t => t.sessionId).filter(Boolean))
 
           for (const savedTab of workspace.openTabs) {
-            // Skip if this session is already open
-            if (savedTab.sessionId && openSessionIds.has(savedTab.sessionId)) {
-              console.log('Skipping already open session:', savedTab.sessionId)
-              continue
-            }
-
             try {
               // Always install TTS instructions so Claude uses <tts> tags
               await window.electronAPI.ttsInstallInstructions?.(savedTab.projectPath)
 
+              // Check for the most recent session - it may differ from stored if user ran /clear
+              let sessionIdToRestore = savedTab.sessionId
+              let titleToRestore = savedTab.title
+              const sessions = await window.electronAPI.discoverSessions(savedTab.projectPath)
+              if (sessions.length > 0) {
+                const mostRecent = sessions[0]
+                // Use the most recent session instead of the stored one
+                if (mostRecent.sessionId !== savedTab.sessionId) {
+                  console.log('Using more recent session:', mostRecent.sessionId, 'instead of stored:', savedTab.sessionId)
+                  sessionIdToRestore = mostRecent.sessionId
+                  const projectName = savedTab.projectPath.split(/[/\\]/).pop() || savedTab.projectPath
+                  titleToRestore = `${projectName} - ${mostRecent.slug}`
+                }
+              }
+
+              // Skip if this session is already open
+              if (sessionIdToRestore && openSessionIds.has(sessionIdToRestore)) {
+                console.log('Skipping already open session:', sessionIdToRestore)
+                continue
+              }
+
               const ptyId = await window.electronAPI.spawnPty(
                 savedTab.projectPath,
-                savedTab.sessionId
+                sessionIdToRestore
               )
               // Map old tab ID to new ptyId for layout restoration
               if (savedTab.id) {
@@ -189,13 +204,13 @@ function App() {
               addTab({
                 id: ptyId,
                 projectPath: savedTab.projectPath,
-                sessionId: savedTab.sessionId,
-                title: savedTab.title,
+                sessionId: sessionIdToRestore,
+                title: titleToRestore,
                 ptyId
               })
               // Track this session as now open
-              if (savedTab.sessionId) {
-                openSessionIds.add(savedTab.sessionId)
+              if (sessionIdToRestore) {
+                openSessionIds.add(sessionIdToRestore)
               }
             } catch (e) {
               console.error('Failed to restore tab:', savedTab.title, e)
@@ -264,18 +279,19 @@ function App() {
     }
   }, [projects, openTabs, activeTabId, loading, viewMode, tileLayout])
 
-  // Poll for session IDs on tabs that don't have one
+  // Poll for session IDs - update tabs without sessions and detect when sessions change (e.g., after /clear)
   useEffect(() => {
-    const tabsWithoutSession = openTabs.filter(t => !t.sessionId)
-    if (tabsWithoutSession.length === 0) return
-
     const pollInterval = setInterval(async () => {
-      for (const tab of tabsWithoutSession) {
+      for (const tab of openTabs) {
         try {
           const sessions = await window.electronAPI.discoverSessions(tab.projectPath)
           if (sessions.length > 0) {
             // Get the most recent session
             const mostRecent = sessions[0]
+
+            // Skip if this tab already has the most recent session
+            if (tab.sessionId === mostRecent.sessionId) continue
+
             // Check if we already have this session in another tab
             const alreadyOpen = openTabs.some(t => t.id !== tab.id && t.sessionId === mostRecent.sessionId)
             if (!alreadyOpen) {

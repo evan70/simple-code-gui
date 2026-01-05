@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { themes, getThemeById, applyTheme, Theme } from '../themes'
 import { VoiceBrowserModal } from './VoiceBrowserModal'
+import { useVoice } from '../contexts/VoiceContext'
 
 // Whisper models available
 const WHISPER_MODELS = [
@@ -58,20 +59,42 @@ export function SettingsModal({ isOpen, onClose, onThemeChange }: SettingsModalP
   const [permissionMode, setPermissionMode] = useState('default')
   const [customTool, setCustomTool] = useState('')
 
+  // Voice context for active whisper model
+  const { whisperModel: activeWhisperModel, setWhisperModel: setActiveWhisperModel } = useVoice()
+
   // Voice settings
   const [whisperStatus, setWhisperStatus] = useState<{ installed: boolean; models: string[]; currentModel: string | null }>({ installed: false, models: [], currentModel: null })
   const [ttsStatus, setTtsStatus] = useState<{ installed: boolean; voices: string[]; currentVoice: string | null }>({ installed: false, voices: [], currentVoice: null })
   const [selectedWhisperModel, setSelectedWhisperModel] = useState('base.en')
   const [selectedVoice, setSelectedVoice] = useState('en_US-libritts_r-medium')
+  const [selectedEngine, setSelectedEngine] = useState<'piper' | 'xtts'>('piper')
   const [installingModel, setInstallingModel] = useState<string | null>(null)
   const [installingVoice, setInstallingVoice] = useState<string | null>(null)
   const [showVoiceBrowser, setShowVoiceBrowser] = useState(false)
   const [installedVoices, setInstalledVoices] = useState<Array<{ key: string; displayName: string; source: string }>>([])
+  // XTTS quality settings
+  const [xttsTemperature, setXttsTemperature] = useState(0.65)
+  const [xttsTopK, setXttsTopK] = useState(50)
+  const [xttsTopP, setXttsTopP] = useState(0.85)
+  const [xttsRepetitionPenalty, setXttsRepetitionPenalty] = useState(2.0)
+  const [ttsSpeed, setTtsSpeed] = useState(1.0)
 
-  // Load installed voices
+  // Load installed voices (Piper and XTTS)
   const refreshInstalledVoices = async () => {
-    const voices = await window.electronAPI.voiceGetInstalled?.()
-    if (voices) setInstalledVoices(voices)
+    const [piperVoices, xttsVoices] = await Promise.all([
+      window.electronAPI.voiceGetInstalled?.(),
+      window.electronAPI.xttsGetVoices?.()
+    ])
+    const combined: Array<{ key: string; displayName: string; source: string }> = []
+    if (piperVoices) combined.push(...piperVoices)
+    if (xttsVoices) {
+      combined.push(...xttsVoices.map((v: { id: string; name: string }) => ({
+        key: v.id,
+        displayName: v.name,
+        source: 'xtts'
+      })))
+    }
+    setInstalledVoices(combined)
   }
 
   useEffect(() => {
@@ -82,6 +105,20 @@ export function SettingsModal({ isOpen, onClose, onThemeChange }: SettingsModalP
         setAutoAcceptTools(settings.autoAcceptTools || [])
         setPermissionMode(settings.permissionMode || 'default')
       })
+
+      // Load voice settings (active voice)
+      window.electronAPI.voiceGetSettings?.().then((voiceSettings) => {
+        if (voiceSettings) {
+          setSelectedVoice(voiceSettings.ttsVoice || 'en_US-libritts_r-medium')
+          setSelectedEngine(voiceSettings.ttsEngine || 'piper')
+          setTtsSpeed(voiceSettings.ttsSpeed || 1.0)
+          // XTTS quality settings
+          setXttsTemperature(voiceSettings.xttsTemperature ?? 0.65)
+          setXttsTopK(voiceSettings.xttsTopK ?? 50)
+          setXttsTopP(voiceSettings.xttsTopP ?? 0.85)
+          setXttsRepetitionPenalty(voiceSettings.xttsRepetitionPenalty ?? 2.0)
+        }
+      }).catch(() => {})
 
       // Load voice status
       window.electronAPI.voiceCheckWhisper?.().then(setWhisperStatus).catch(() => {})
@@ -106,7 +143,22 @@ export function SettingsModal({ isOpen, onClose, onThemeChange }: SettingsModalP
 
   const handleSave = async () => {
     await window.electronAPI.saveSettings({ defaultProjectDir, theme: selectedTheme, autoAcceptTools, permissionMode })
+    // Save voice settings including XTTS quality settings
+    await window.electronAPI.voiceApplySettings?.({
+      ttsVoice: selectedVoice,
+      ttsEngine: selectedEngine,
+      ttsSpeed,
+      xttsTemperature,
+      xttsTopK,
+      xttsTopP,
+      xttsRepetitionPenalty
+    })
     onClose()
+  }
+
+  const handleVoiceSelect = (voiceKey: string, source: string) => {
+    setSelectedVoice(voiceKey)
+    setSelectedEngine(source === 'xtts' ? 'xtts' : 'piper')
   }
 
   const toggleTool = (tool: string) => {
@@ -294,18 +346,24 @@ export function SettingsModal({ isOpen, onClose, onThemeChange }: SettingsModalP
               {WHISPER_MODELS.map((model) => {
                 const isInstalled = whisperStatus.models.includes(model.value)
                 const isInstalling = installingModel === model.value
+                const isActive = activeWhisperModel === model.value
                 return (
-                  <div key={model.value} className={`voice-option ${isInstalled ? 'installed' : ''}`}>
+                  <div
+                    key={model.value}
+                    className={`voice-option ${isInstalled ? 'installed' : ''} ${isActive ? 'selected' : ''}`}
+                    onClick={() => isInstalled && setActiveWhisperModel(model.value as any)}
+                    style={{ cursor: isInstalled ? 'pointer' : 'default' }}
+                  >
                     <div className="voice-info">
                       <span className="voice-label">{model.label}</span>
                       <span className="voice-desc">{model.desc}</span>
                     </div>
                     {isInstalled ? (
-                      <span className="voice-status installed">Installed</span>
+                      <span className="voice-status installed">{isActive ? '● Active' : 'Installed'}</span>
                     ) : (
                       <button
                         className="voice-install-btn"
-                        onClick={() => handleInstallWhisperModel(model.value)}
+                        onClick={(e) => { e.stopPropagation(); handleInstallWhisperModel(model.value) }}
                         disabled={isInstalling}
                       >
                         {isInstalling ? 'Installing...' : 'Install'}
@@ -320,21 +378,31 @@ export function SettingsModal({ isOpen, onClose, onThemeChange }: SettingsModalP
           <div className="form-group">
             <label>Voice Output (Text-to-Speech)</label>
             <p className="form-hint">
-              Piper voices for Claude to speak responses aloud. Browse 100+ voices in 35+ languages.
+              Piper voices and XTTS clones for Claude to speak responses aloud.
             </p>
             <div className="voice-options">
               {installedVoices.length > 0 ? (
-                installedVoices.map((voice) => (
-                  <div key={voice.key} className="voice-option installed">
-                    <div className="voice-info">
-                      <span className="voice-label">{voice.displayName}</span>
-                      <span className="voice-desc">
-                        {voice.source === 'builtin' ? 'Built-in' : voice.source === 'custom' ? 'Custom' : 'Downloaded'}
+                installedVoices.map((voice) => {
+                  const isSelected = selectedVoice === voice.key
+                  return (
+                    <div
+                      key={voice.key}
+                      className={`voice-option installed ${isSelected ? 'selected' : ''}`}
+                      onClick={() => handleVoiceSelect(voice.key, voice.source)}
+                      style={{ cursor: 'pointer' }}
+                    >
+                      <div className="voice-info">
+                        <span className="voice-label">{voice.displayName}</span>
+                        <span className="voice-desc">
+                          {voice.source === 'builtin' ? 'Built-in' : voice.source === 'custom' ? 'Custom' : voice.source === 'xtts' ? 'XTTS Clone' : 'Downloaded'}
+                        </span>
+                      </div>
+                      <span className={`voice-status ${isSelected ? 'active' : 'installed'}`}>
+                        {isSelected ? 'Active' : 'Installed'}
                       </span>
                     </div>
-                    <span className="voice-status installed">Installed</span>
-                  </div>
-                ))
+                  )
+                })
               ) : (
                 <div className="voice-option">
                   <div className="voice-info">
@@ -351,6 +419,94 @@ export function SettingsModal({ isOpen, onClose, onThemeChange }: SettingsModalP
             >
               Browse Voices...
             </button>
+
+            {/* Voice Speed */}
+            <div className="slider-group" style={{ marginTop: '16px' }}>
+              <div className="slider-header">
+                <label>Speed</label>
+                <span className="slider-value">{ttsSpeed.toFixed(1)}x</span>
+              </div>
+              <input
+                type="range"
+                min="0.5"
+                max="2.0"
+                step="0.1"
+                value={ttsSpeed}
+                onChange={(e) => setTtsSpeed(parseFloat(e.target.value))}
+                className="slider"
+              />
+              <div className="slider-labels">
+                <span>Slow</span>
+                <span>Fast</span>
+              </div>
+            </div>
+
+            {/* XTTS Quality Settings - only show when XTTS voice selected */}
+            {selectedEngine === 'xtts' && (
+              <div className="xtts-settings" style={{ marginTop: '16px', padding: '12px', background: 'var(--bg-secondary)', borderRadius: '8px' }}>
+                <label style={{ marginBottom: '12px', display: 'block', fontWeight: 600 }}>XTTS Quality Settings</label>
+
+                <div className="slider-group">
+                  <div className="slider-header">
+                    <label>Temperature</label>
+                    <span className="slider-value">{xttsTemperature.toFixed(2)}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="1.0"
+                    step="0.05"
+                    value={xttsTemperature}
+                    onChange={(e) => setXttsTemperature(parseFloat(e.target.value))}
+                    className="slider"
+                  />
+                  <div className="slider-labels">
+                    <span>Consistent</span>
+                    <span>Expressive</span>
+                  </div>
+                </div>
+
+                <div className="slider-group" style={{ marginTop: '12px' }}>
+                  <div className="slider-header">
+                    <label>Top-P</label>
+                    <span className="slider-value">{xttsTopP.toFixed(2)}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="0.1"
+                    max="1.0"
+                    step="0.05"
+                    value={xttsTopP}
+                    onChange={(e) => setXttsTopP(parseFloat(e.target.value))}
+                    className="slider"
+                  />
+                  <div className="slider-labels">
+                    <span>Focused</span>
+                    <span>Diverse</span>
+                  </div>
+                </div>
+
+                <div className="slider-group" style={{ marginTop: '12px' }}>
+                  <div className="slider-header">
+                    <label>Repetition Penalty</label>
+                    <span className="slider-value">{xttsRepetitionPenalty.toFixed(1)}</span>
+                  </div>
+                  <input
+                    type="range"
+                    min="1.0"
+                    max="5.0"
+                    step="0.5"
+                    value={xttsRepetitionPenalty}
+                    onChange={(e) => setXttsRepetitionPenalty(parseFloat(e.target.value))}
+                    className="slider"
+                  />
+                  <div className="slider-labels">
+                    <span>Allow</span>
+                    <span>Penalize</span>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </div>
         <div className="modal-footer">
@@ -366,7 +522,9 @@ export function SettingsModal({ isOpen, onClose, onThemeChange }: SettingsModalP
           refreshInstalledVoices()
         }}
         onVoiceSelect={(voiceKey, engine) => {
-          setSelectedVoice(engine === 'xtts' ? `xtts:${voiceKey}` : voiceKey)
+          // Don't prefix with 'xtts:' - selectedEngine tracks the engine type
+          setSelectedVoice(voiceKey)
+          setSelectedEngine(engine === 'xtts' ? 'xtts' : 'piper')
           window.electronAPI.voiceSetVoice?.({ voice: voiceKey, engine })
         }}
       />

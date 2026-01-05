@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import { useVoice } from '../contexts/VoiceContext'
 
 interface VoiceControlsProps {
@@ -10,26 +10,27 @@ export function VoiceControls({
   activeTabId,
   onTranscription
 }: VoiceControlsProps) {
-  const { voiceOutputEnabled, setVoiceOutputEnabled, isSpeaking, stopSpeaking } = useVoice()
+  const {
+    // Voice Output
+    voiceOutputEnabled, setVoiceOutputEnabled, isSpeaking, stopSpeaking,
+    // Voice Input
+    isRecording, isModelLoading, isModelLoaded, modelLoadProgress, modelLoadStatus,
+    currentTranscription, startRecording, stopRecording
+  } = useVoice()
 
-  const [isRecording, setIsRecording] = useState(false)
-  const [whisperInstalled, setWhisperInstalled] = useState(false)
   const [ttsInstalled, setTtsInstalled] = useState(false)
-  const [installingWhisper, setInstallingWhisper] = useState(false)
   const [installingTTS, setInstallingTTS] = useState(false)
 
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const audioChunksRef = useRef<Blob[]>([])
-  const streamRef = useRef<MediaStream | null>(null)
+  // Use ref to always have latest activeTabId for transcription callback
+  const activeTabIdRef = useRef(activeTabId)
+  useEffect(() => {
+    activeTabIdRef.current = activeTabId
+  }, [activeTabId])
 
   useEffect(() => {
     checkInstallation()
 
     const cleanup = window.electronAPI.onInstallProgress?.((data) => {
-      if (data.type === 'whisper' && data.percent === 100) {
-        setInstallingWhisper(false)
-        checkInstallation()
-      }
       if ((data.type === 'piper' || data.type === 'piper-voice') && data.percent === 100) {
         setInstallingTTS(false)
         checkInstallation()
@@ -38,20 +39,8 @@ export function VoiceControls({
     return cleanup
   }, [])
 
-  // Cleanup on unmount
-  useEffect(() => {
-    return () => {
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach(track => track.stop())
-      }
-    }
-  }, [])
-
   const checkInstallation = async () => {
     try {
-      const whisperStatus = await window.electronAPI.voiceCheckWhisper?.()
-      setWhisperInstalled(whisperStatus?.installed ?? false)
-
       const ttsStatus = await window.electronAPI.voiceCheckTTS?.()
       setTtsInstalled(ttsStatus?.installed ?? false)
     } catch (e) {
@@ -59,104 +48,20 @@ export function VoiceControls({
     }
   }
 
-  const startRecording = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      streamRef.current = stream
-
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'audio/webm;codecs=opus'
-      })
-      mediaRecorderRef.current = mediaRecorder
-      audioChunksRef.current = []
-
-      mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
-          audioChunksRef.current.push(event.data)
-        }
-      }
-
-      mediaRecorder.onstop = async () => {
-        // Convert to PCM for Whisper
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' })
-        await processAudio(audioBlob)
-
-        // Stop the stream
-        stream.getTracks().forEach(track => track.stop())
-        streamRef.current = null
-      }
-
-      mediaRecorder.start()
-      setIsRecording(true)
-    } catch (e) {
-      console.error('Failed to start recording:', e)
-      alert('Could not access microphone. Please check permissions.')
-    }
-  }
-
-  const stopRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
-      mediaRecorderRef.current.stop()
-      setIsRecording(false)
-    }
-  }
-
-  const processAudio = async (audioBlob: Blob) => {
-    try {
-      // Convert audio blob to ArrayBuffer
-      const arrayBuffer = await audioBlob.arrayBuffer()
-
-      // Decode audio using Web Audio API
-      const audioContext = new AudioContext({ sampleRate: 16000 })
-      const audioBuffer = await audioContext.decodeAudioData(arrayBuffer)
-
-      // Get PCM data (mono, 16kHz)
-      const pcmData = audioBuffer.getChannelData(0)
-
-      // Convert Float32Array to regular array for IPC
-      const pcmArray = Array.from(pcmData)
-
-      // Send to Whisper for transcription
-      const result = await window.electronAPI.voiceTranscribe?.(pcmArray)
-
-      if (result?.success && result.text) {
-        onTranscription(result.text)
-      } else if (result?.error) {
-        console.error('Transcription:', result.error)
-        // Show friendly message - voice input is coming soon
-        if (result.error.includes('coming soon') || result.error.includes('pending')) {
-          alert('🎤 Voice input coming soon!\n\nThe speech model is downloaded and ready. Whisper.cpp binary integration is in progress.')
-        } else {
-          alert(`Transcription: ${result.error}`)
-        }
-      }
-
-      audioContext.close()
-    } catch (e) {
-      console.error('Audio processing failed:', e)
-    }
-  }
+  // Handle transcription callback - accumulate text while recording
+  const handleTranscription = useCallback((text: string) => {
+    onTranscription(text)
+  }, [onTranscription])
 
   const handleVoiceInput = async () => {
-    if (installingWhisper) return
+    if (isModelLoading) return
 
-    if (!whisperInstalled) {
-      setInstallingWhisper(true)
-      try {
-        await window.electronAPI.voiceInstallWhisper?.('base.en')
-        await checkInstallation()
-      } catch (e) {
-        console.error('Failed to install Whisper:', e)
-      }
-      setInstallingWhisper(false)
+    if (isRecording) {
+      // Stop recording
+      stopRecording()
     } else {
-      // Voice input not yet implemented
-      // Show brief visual feedback
-      const btn = document.querySelector('.action-icon-btn:first-child') as HTMLElement
-      if (btn) {
-        btn.style.opacity = '0.3'
-        setTimeout(() => { btn.style.opacity = '' }, 300)
-      }
+      // Start recording - model will auto-load if needed
+      await startRecording(handleTranscription)
     }
   }
 
@@ -202,16 +107,28 @@ export function VoiceControls({
     }
   }
 
+  // Determine voice input button state and title
+  const getVoiceInputTitle = () => {
+    if (isModelLoading) return `Loading Whisper model... ${modelLoadProgress}%`
+    if (isRecording) {
+      if (currentTranscription) {
+        return `Recording: "${currentTranscription}" (auto-submits after 3s silence)`
+      }
+      return 'Listening... (speak now)'
+    }
+    return 'Click to start voice input'
+  }
+
   return (
     <>
       <button
-        className={`action-icon-btn ${isRecording ? 'enabled recording' : ''} ${installingWhisper ? 'installing' : ''} ${whisperInstalled ? 'not-ready' : ''}`}
+        className={`action-icon-btn ${isRecording ? 'enabled recording' : ''} ${isModelLoading ? 'installing' : ''}`}
         onClick={handleVoiceInput}
-        disabled={installingWhisper}
+        disabled={isModelLoading}
         tabIndex={-1}
-        title={installingWhisper ? 'Installing Whisper...' : whisperInstalled ? 'Voice input coming soon' : 'Click to install Whisper'}
+        title={getVoiceInputTitle()}
       >
-        {installingWhisper ? '⏳' : '🎤'}
+        {isModelLoading ? '⏳' : isRecording ? '⏹️' : '🎤'}
       </button>
 
       <button

@@ -102,6 +102,9 @@ export interface ElectronAPI {
   xttsGetLanguages: () => Promise<Array<{ code: string; name: string }>>
   xttsGetSampleVoices: () => Promise<Array<{ id: string; name: string; language: string; file: string; installed: boolean }>>
   xttsDownloadSampleVoice: (sampleId: string) => Promise<{ success: boolean; voiceId?: string; error?: string }>
+  xttsSelectMediaFile: () => Promise<{ success: boolean; path?: string; duration?: number; error?: string }>
+  xttsGetMediaDuration: (filePath: string) => Promise<{ success: boolean; duration?: number; error?: string }>
+  xttsExtractAudioClip: (inputPath: string, startTime: number, endTime: number) => Promise<{ success: boolean; outputPath?: string; dataUrl?: string; error?: string }>
 
   // PTY
   spawnPty: (cwd: string, sessionId?: string, model?: string) => Promise<string>
@@ -228,6 +231,9 @@ const api: ElectronAPI = {
   xttsGetLanguages: () => ipcRenderer.invoke('xtts:getLanguages'),
   xttsGetSampleVoices: () => ipcRenderer.invoke('xtts:getSampleVoices'),
   xttsDownloadSampleVoice: (sampleId) => ipcRenderer.invoke('xtts:downloadSampleVoice', sampleId),
+  xttsSelectMediaFile: () => ipcRenderer.invoke('xtts:selectMediaFile'),
+  xttsGetMediaDuration: (filePath) => ipcRenderer.invoke('xtts:getMediaDuration', filePath),
+  xttsExtractAudioClip: (inputPath, startTime, endTime) => ipcRenderer.invoke('xtts:extractAudioClip', { inputPath, startTime, endTime }),
 
   // PTY management
   spawnPty: (cwd, sessionId, model) => ipcRenderer.invoke('pty:spawn', { cwd, sessionId, model }),

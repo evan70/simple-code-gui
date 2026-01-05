@@ -1,6 +1,27 @@
 import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react'
+import { WhisperTranscriber } from 'whisper-web-transcriber'
+
+// Map to HuggingFace URLs for all Whisper model sizes
+type WhisperModelSize = 'tiny.en' | 'base.en' | 'small.en' | 'medium.en' | 'large-v3'
+
+const WHISPER_MODEL_URLS: Record<WhisperModelSize, string> = {
+  'tiny.en': 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin',
+  'base.en': 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin',
+  'small.en': 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-small.en.bin',
+  'medium.en': 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-medium.en.bin',
+  'large-v3': 'https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-large-v3.bin'
+}
+
+const WHISPER_MODEL_SIZES: Record<WhisperModelSize, number> = {
+  'tiny.en': 75,
+  'base.en': 147,
+  'small.en': 488,
+  'medium.en': 1500,
+  'large-v3': 3000
+}
 
 interface VoiceContextValue {
+  // Voice Output (TTS)
   voiceOutputEnabled: boolean
   setVoiceOutputEnabled: (enabled: boolean) => void
   speakText: (text: string) => void
@@ -12,11 +33,24 @@ interface VoiceContextValue {
   setSpeed: (speed: number) => void
   skipOnNew: boolean
   setSkipOnNew: (skip: boolean) => void
+
+  // Voice Input (STT)
+  isRecording: boolean
+  isModelLoading: boolean
+  isModelLoaded: boolean
+  modelLoadProgress: number
+  modelLoadStatus: string
+  currentTranscription: string  // Live transcription while recording
+  whisperModel: WhisperModelSize
+  setWhisperModel: (model: WhisperModelSize) => void
+  startRecording: (onTranscription: (text: string) => void) => Promise<void>
+  stopRecording: () => void
 }
 
 const VoiceContext = createContext<VoiceContextValue | null>(null)
 
 export function VoiceProvider({ children }: { children: React.ReactNode }) {
+  // Voice Output (TTS) state
   const [voiceOutputEnabled, setVoiceOutputEnabledState] = useState(false)
   const [isSpeaking, setIsSpeaking] = useState(false)
   const [volume, setVolumeState] = useState(1.0)
@@ -28,6 +62,20 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   const isProcessingRef = useRef(false)
   const voiceOutputEnabledRef = useRef(voiceOutputEnabled)
   const skipOnNewRef = useRef(skipOnNew)
+
+  // Voice Input (STT) state
+  const [isRecording, setIsRecording] = useState(false)
+  const [isModelLoading, setIsModelLoading] = useState(false)
+  const [isModelLoaded, setIsModelLoaded] = useState(false)
+  const [modelLoadProgress, setModelLoadProgress] = useState(0)
+  const [modelLoadStatus, setModelLoadStatus] = useState('')
+  const [whisperModel, setWhisperModelState] = useState<WhisperModelSize>('base.en')
+  const [currentTranscription, setCurrentTranscription] = useState('')
+  const whisperRef = useRef<WhisperTranscriber | null>(null)
+  const onTranscriptionRef = useRef<((text: string) => void) | null>(null)
+  const finalTranscriptionRef = useRef<string>('')
+  const silenceTimerRef = useRef<NodeJS.Timeout | null>(null)
+  const isRecordingRef = useRef(false)  // Ref version for callbacks
 
   // Load settings on mount
   useEffect(() => {
@@ -188,8 +236,194 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     }
   }, [voiceOutputEnabled, stopSpeaking])
 
+  // ==================== Voice Input (STT) ====================
+
+  // Initialize Whisper transcriber
+  const initWhisper = useCallback(async () => {
+    if (whisperRef.current || isModelLoading) return
+
+    setIsModelLoading(true)
+    setModelLoadStatus('Initializing...')
+
+    try {
+      const modelUrl = WHISPER_MODEL_URLS[whisperModel]
+      const modelSizeMB = WHISPER_MODEL_SIZES[whisperModel]
+
+      const transcriber = new WhisperTranscriber({
+        modelUrl,
+        modelSize: whisperModel as any,  // Use our model names
+        onTranscription: (text: string) => {
+          // ACCUMULATE transcriptions (library sends separate chunks)
+          // Filter out Whisper's silence/noise markers and artifacts
+          const cleaned = text.trim()
+            .replace(/\[BLANK_AUDIO\]/gi, '')
+            .replace(/\[Silence\]/gi, '')
+            .replace(/\(silence\)/gi, '')
+            .replace(/\[Pause\]/gi, '')
+            .replace(/\(Pause\)/gi, '')
+            .replace(/\[inaudible\]/gi, '')
+            .replace(/\[Music\]/gi, '')
+            .replace(/\(Music\)/gi, '')
+            .replace(/\[Applause\]/gi, '')
+            .replace(/\[Laughter\]/gi, '')
+            .replace(/\[.*?\]/g, '')  // Any remaining [bracketed] markers
+            .replace(/\(.*?\)/g, '')  // Any remaining (parenthetical) markers
+            .replace(/♪.*?♪/g, '')  // Music notes
+            .replace(/\*.*?\*/g, '')  // Asterisk markers
+            .replace(/^[\s.,!?]+$/, '')  // Only punctuation
+            .replace(/^\.*$/, '')  // Only periods
+            .trim()
+
+          // Skip if empty or just short punctuation/artifacts
+          if (cleaned && cleaned.length > 1 && !/^[.,!?\-]+$/.test(cleaned)) {
+            // Append new text to existing transcription
+            const newText = finalTranscriptionRef.current
+              ? finalTranscriptionRef.current + ' ' + cleaned
+              : cleaned
+            finalTranscriptionRef.current = newText
+            setCurrentTranscription(newText)
+
+            // Reset silence timer - auto-submit after 3 seconds of no new speech
+            if (silenceTimerRef.current) {
+              clearTimeout(silenceTimerRef.current)
+            }
+            silenceTimerRef.current = setTimeout(async () => {
+              // Auto-submit if still recording, but keep recording for continuous mode
+              if (isRecordingRef.current && whisperRef.current) {
+                // Submit the final transcription
+                if (onTranscriptionRef.current && finalTranscriptionRef.current.trim()) {
+                  const callback = onTranscriptionRef.current
+                  const textToSend = finalTranscriptionRef.current.trim()
+
+                  // Clear transcription for next input
+                  finalTranscriptionRef.current = ''
+                  setCurrentTranscription('')
+
+                  // Send the transcription
+                  callback(textToSend)
+
+                  // Restart recording for continuous mode
+                  // Stop and restart to reset the audio buffer
+                  whisperRef.current.stopRecording()
+                  await whisperRef.current.startRecording()
+                }
+              }
+            }, 3000)  // 3 seconds of silence
+          }
+        },
+        debug: true,
+        onProgress: (progress: number) => {
+          setModelLoadProgress(progress)
+          setModelLoadStatus(`Downloading ${whisperModel} (${modelSizeMB}MB)... ${progress}%`)
+        },
+        onStatus: (status: string) => {
+          setModelLoadStatus(status)
+        }
+      })
+
+      await transcriber.loadModel()
+      whisperRef.current = transcriber
+      setIsModelLoaded(true)
+      setModelLoadStatus('Model loaded')
+    } catch (error: any) {
+      console.error('Failed to initialize Whisper:', error)
+      setModelLoadStatus(`Error: ${error.message}`)
+    } finally {
+      setIsModelLoading(false)
+    }
+  }, [whisperModel, isModelLoading])
+
+  // Set Whisper model (saves to settings)
+  const setWhisperModel = useCallback((model: WhisperModelSize) => {
+    setWhisperModelState(model)
+    // Destroy existing transcriber so it reloads with new model
+    if (whisperRef.current) {
+      whisperRef.current.destroy()
+      whisperRef.current = null
+      setIsModelLoaded(false)
+    }
+    saveVoiceSetting('whisperModel', model as unknown as number) // Cast for now
+  }, [saveVoiceSetting])
+
+  // Start recording and transcribing
+  const startRecording = useCallback(async (onTranscription: (text: string) => void) => {
+    if (isRecording) return
+
+    // Store the callback and clear previous transcription
+    onTranscriptionRef.current = onTranscription
+    finalTranscriptionRef.current = ''
+    setCurrentTranscription('')
+
+    // Clear any existing silence timer
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current)
+      silenceTimerRef.current = null
+    }
+
+    // Initialize Whisper if needed
+    if (!whisperRef.current) {
+      await initWhisper()
+    }
+
+    if (!whisperRef.current) {
+      console.error('Whisper not initialized')
+      return
+    }
+
+    try {
+      await whisperRef.current.startRecording()
+      setIsRecording(true)
+      isRecordingRef.current = true
+    } catch (error: any) {
+      console.error('Failed to start recording:', error)
+      // If microphone permission denied, show alert
+      if (error.message?.includes('Permission denied') || error.name === 'NotAllowedError') {
+        alert('Microphone access denied. Please allow microphone access in your browser/system settings.')
+      }
+    }
+  }, [isRecording, initWhisper])
+
+  // Stop recording
+  const stopRecording = useCallback(() => {
+    if (!isRecording || !whisperRef.current) return
+
+    // Clear silence timer
+    if (silenceTimerRef.current) {
+      clearTimeout(silenceTimerRef.current)
+      silenceTimerRef.current = null
+    }
+
+    whisperRef.current.stopRecording()
+    setIsRecording(false)
+    isRecordingRef.current = false
+
+    // Call the callback with the final accumulated transcription
+    if (onTranscriptionRef.current && finalTranscriptionRef.current.trim()) {
+      onTranscriptionRef.current(finalTranscriptionRef.current.trim())
+    }
+
+    // Clear refs
+    onTranscriptionRef.current = null
+    finalTranscriptionRef.current = ''
+    setCurrentTranscription('')
+  }, [isRecording])
+
+  // Cleanup on unmount
+  useEffect(() => {
+    return () => {
+      if (silenceTimerRef.current) {
+        clearTimeout(silenceTimerRef.current)
+      }
+      if (whisperRef.current) {
+        whisperRef.current.destroy()
+        whisperRef.current = null
+      }
+    }
+  }, [])
+
   return (
     <VoiceContext.Provider value={{
+      // Voice Output
       voiceOutputEnabled,
       setVoiceOutputEnabled,
       speakText,
@@ -200,7 +434,18 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       speed,
       setSpeed,
       skipOnNew,
-      setSkipOnNew
+      setSkipOnNew,
+      // Voice Input
+      isRecording,
+      isModelLoading,
+      isModelLoaded,
+      modelLoadProgress,
+      modelLoadStatus,
+      currentTranscription,
+      whisperModel,
+      setWhisperModel,
+      startRecording,
+      stopRecording
     }}>
       {children}
     </VoiceContext.Provider>

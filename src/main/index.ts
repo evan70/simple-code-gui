@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, session } from 'electron'
 import { join } from 'path'
 import { mkdirSync, existsSync, writeFileSync, appendFileSync } from 'fs'
 import { tmpdir } from 'os'
@@ -203,6 +203,18 @@ app.whenReady().then(() => {
   const portableDirs = getPortableBinDirs()
   setPortableBinDirs(portableDirs)
   console.log('Portable bin directories:', portableDirs)
+
+  // Enable Cross-Origin Isolation for SharedArrayBuffer (required for WASM Whisper)
+  // This sets COOP and COEP headers on all responses
+  session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: {
+        ...details.responseHeaders,
+        'Cross-Origin-Opener-Policy': ['same-origin'],
+        'Cross-Origin-Embedder-Policy': ['require-corp']
+      }
+    })
+  })
 
   createWindow()
 
@@ -1068,6 +1080,38 @@ ipcMain.handle('xtts:getSampleVoices', async () => {
 
 ipcMain.handle('xtts:downloadSampleVoice', async (_, sampleId: string) => {
   return xttsManager.downloadSampleVoice(sampleId)
+})
+
+ipcMain.handle('xtts:getMediaDuration', async (_, filePath: string) => {
+  return xttsManager.getMediaDuration(filePath)
+})
+
+ipcMain.handle('xtts:extractAudioClip', async (_, { inputPath, startTime, endTime }) => {
+  return xttsManager.extractAudioClip(inputPath, startTime, endTime)
+})
+
+ipcMain.handle('xtts:selectMediaFile', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    filters: [
+      { name: 'Media Files', extensions: ['mp4', 'webm', 'mkv', 'avi', 'mov', 'mp3', 'wav', 'ogg', 'flac', 'm4a'] },
+      { name: 'All Files', extensions: ['*'] }
+    ]
+  })
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return { success: false }
+  }
+
+  const filePath = result.filePaths[0]
+  const duration = await xttsManager.getMediaDuration(filePath)
+
+  return {
+    success: true,
+    path: filePath,
+    duration: duration.success ? duration.duration : undefined,
+    error: duration.error
+  }
 })
 
 // Clipboard image reading and saving (using Electron's native clipboard)
