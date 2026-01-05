@@ -3846,3 +3846,29 @@ html, body, #root {
 .terminal-menu-item:active {
   background: var(--bg-active);
 }
+
+.terminal-menu-item.toggle-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.terminal-menu-item.toggle-item .toggle-indicator {
+  width: 16px;
+  text-align: center;
+  color: var(--accent-primary);
+  font-weight: bold;
+}
+
+.terminal-menu-item.toggle-item.checked {
+  background: var(--bg-hover);
+}
+
+.terminal-menu-divider {
+  padding: 4px 12px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  opacity: 0.5;
+  pointer-events: none;
+  user-select: none;
+}

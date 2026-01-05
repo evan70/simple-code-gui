@@ -3,12 +3,20 @@ import ReactDOM from 'react-dom'
 
 interface TerminalMenuProps {
   ptyId: string
-  onCommand: (command: string) => void
+  onCommand: (command: string, options?: AutoWorkOptions) => void
+}
+
+export interface AutoWorkOptions {
+  withContext: boolean
+  askQuestions: boolean
+  pauseForReview: boolean
 }
 
 interface MenuItem {
   id: string
   label: string
+  isToggle?: boolean
+  toggleKey?: keyof AutoWorkOptions
 }
 
 interface MenuCategory {
@@ -17,41 +25,14 @@ interface MenuCategory {
   items: MenuItem[]
 }
 
-const menuCategories: MenuCategory[] = [
-  {
-    id: 'commands',
-    label: 'Commands',
-    items: [
-      { id: 'help', label: '/help' },
-      { id: 'clear', label: '/clear' },
-      { id: 'compact', label: '/compact' },
-      { id: 'cost', label: '/cost' },
-      { id: 'status', label: '/status' },
-      { id: 'model', label: '/model' },
-      { id: 'config', label: '/config' },
-      { id: 'doctor', label: '/doctor' },
-    ],
-  },
-  {
-    id: 'automation',
-    label: 'Automation',
-    items: [
-      { id: 'autowork', label: 'Auto Work Loop' },
-      { id: 'autoworksummary', label: 'Auto Work with Context' },
-      { id: 'stopwork', label: 'Stop After Task' },
-    ],
-  },
-  {
-    id: 'session',
-    label: 'Session',
-    items: [
-      { id: 'summarize', label: 'Summarize Context' },
-      { id: 'cancel', label: 'Cancel Request' },
-    ],
-  },
-]
-
 const STORAGE_KEY = 'terminal-menu-expanded'
+const AUTOWORK_OPTIONS_KEY = 'terminal-autowork-options'
+
+const defaultAutoWorkOptions: AutoWorkOptions = {
+  withContext: false,
+  askQuestions: false,
+  pauseForReview: false,
+}
 
 export function TerminalMenu({ ptyId, onCommand }: TerminalMenuProps) {
   // Default to expanded, persist state across restarts
@@ -64,10 +45,68 @@ export function TerminalMenu({ ptyId, onCommand }: TerminalMenuProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const categoryRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
 
+  // Auto work options state
+  const [autoWorkOptions, setAutoWorkOptions] = useState<AutoWorkOptions>(() => {
+    const stored = localStorage.getItem(AUTOWORK_OPTIONS_KEY)
+    if (stored) {
+      try {
+        return { ...defaultAutoWorkOptions, ...JSON.parse(stored) }
+      } catch {
+        return defaultAutoWorkOptions
+      }
+    }
+    return defaultAutoWorkOptions
+  })
+
   // Persist expanded state
   useEffect(() => {
     localStorage.setItem(STORAGE_KEY, String(isExpanded))
   }, [isExpanded])
+
+  // Persist autowork options
+  useEffect(() => {
+    localStorage.setItem(AUTOWORK_OPTIONS_KEY, JSON.stringify(autoWorkOptions))
+  }, [autoWorkOptions])
+
+  // Menu structure with toggles
+  const menuCategories: MenuCategory[] = [
+    {
+      id: 'commands',
+      label: 'Commands',
+      items: [
+        { id: 'help', label: '/help' },
+        { id: 'clear', label: '/clear' },
+        { id: 'compact', label: '/compact' },
+        { id: 'cost', label: '/cost' },
+        { id: 'status', label: '/status' },
+        { id: 'model', label: '/model' },
+        { id: 'config', label: '/config' },
+        { id: 'doctor', label: '/doctor' },
+      ],
+    },
+    {
+      id: 'automation',
+      label: 'Automation',
+      items: [
+        { id: 'autowork', label: 'Start Auto Work' },
+        { id: 'divider1', label: '─────────────' },
+        { id: 'toggle-context', label: 'With Context', isToggle: true, toggleKey: 'withContext' },
+        { id: 'toggle-questions', label: 'Ask Questions', isToggle: true, toggleKey: 'askQuestions' },
+        { id: 'toggle-review', label: 'Pause for Review', isToggle: true, toggleKey: 'pauseForReview' },
+        { id: 'divider2', label: '─────────────' },
+        { id: 'continuework', label: 'Continue to Next Task' },
+        { id: 'stopwork', label: 'Stop After Task' },
+      ],
+    },
+    {
+      id: 'session',
+      label: 'Session',
+      items: [
+        { id: 'summarize', label: 'Summarize Context' },
+        { id: 'cancel', label: 'Cancel Request' },
+      ],
+    },
+  ]
 
   // Close dropdown (not the bar) when clicking outside
   useEffect(() => {
@@ -101,9 +140,28 @@ export function TerminalMenu({ ptyId, onCommand }: TerminalMenuProps) {
     return () => document.removeEventListener('keydown', handleEscape)
   }, [openDropdown, isExpanded])
 
-  const handleMenuAction = (action: string) => {
+  const handleMenuAction = (item: MenuItem) => {
+    if (item.id.startsWith('divider')) {
+      return // Do nothing for dividers
+    }
+
+    if (item.isToggle && item.toggleKey) {
+      // Toggle the option without closing dropdown
+      setAutoWorkOptions(prev => ({
+        ...prev,
+        [item.toggleKey!]: !prev[item.toggleKey!]
+      }))
+      return
+    }
+
     setOpenDropdown(null)  // Close dropdown but keep bar expanded
-    onCommand(action)
+
+    if (item.id === 'autowork') {
+      // Pass options when starting autowork
+      onCommand('autowork', autoWorkOptions)
+    } else {
+      onCommand(item.id)
+    }
   }
 
   const toggleDropdown = (categoryId: string) => {
@@ -139,15 +197,31 @@ export function TerminalMenu({ ptyId, onCommand }: TerminalMenuProps) {
           left: dropdownPos.left,
         }}
       >
-        {category.items.map((item) => (
-          <button
-            key={item.id}
-            className="terminal-menu-item"
-            onClick={() => handleMenuAction(item.id)}
-          >
-            {item.label}
-          </button>
-        ))}
+        {category.items.map((item) => {
+          if (item.id.startsWith('divider')) {
+            return (
+              <div key={item.id} className="terminal-menu-divider">
+                {item.label}
+              </div>
+            )
+          }
+
+          const isToggle = item.isToggle && item.toggleKey
+          const isChecked = isToggle ? autoWorkOptions[item.toggleKey!] : false
+
+          return (
+            <button
+              key={item.id}
+              className={`terminal-menu-item ${isToggle ? 'toggle-item' : ''} ${isChecked ? 'checked' : ''}`}
+              onClick={() => handleMenuAction(item)}
+            >
+              {isToggle && (
+                <span className="toggle-indicator">{isChecked ? '✓' : ' '}</span>
+              )}
+              {item.label}
+            </button>
+          )
+        })}
       </div>,
       document.body
     )
