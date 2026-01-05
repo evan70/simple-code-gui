@@ -37,6 +37,7 @@ const menuCategories: MenuCategory[] = [
     label: 'Automation',
     items: [
       { id: 'autowork', label: 'Auto Work Loop' },
+      { id: 'autoworksummary', label: 'Auto Work with Context' },
       { id: 'stopwork', label: 'Stop After Task' },
     ],
   },

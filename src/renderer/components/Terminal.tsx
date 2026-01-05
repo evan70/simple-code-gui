@@ -161,6 +161,7 @@ export function Terminal({ ptyId, isActive, theme, onFocus }: TerminalProps) {
 
   // Auto Work Loop feature
   const autoWorkModeRef = useRef(false)
+  const autoWorkWithSummaryRef = useRef(false)  // Variant that preserves context via summaries
   const [pendingAutoWorkContinue, setPendingAutoWorkContinue] = useState(false)
 
   // Keep refs in sync
@@ -176,7 +177,8 @@ export function Terminal({ ptyId, isActive, theme, onFocus }: TerminalProps) {
   useEffect(() => {
     if (pendingSummary) {
       const summaryToSend = pendingSummary  // Capture value before clearing state
-      console.log('[Summary] useEffect triggered, running /clear, summary length:', summaryToSend.length)
+      const shouldContinueAutoWork = autoWorkWithSummaryRef.current  // Check if in autowork-with-summary mode
+      console.log('[Summary] useEffect triggered, running /clear, summary length:', summaryToSend.length, 'autowork:', shouldContinueAutoWork)
       // Run /clear
       window.electronAPI.writePty(ptyId, '/clear')
       setTimeout(() => {
@@ -190,6 +192,17 @@ export function Terminal({ ptyId, isActive, theme, onFocus }: TerminalProps) {
           setTimeout(() => {
             console.log('[Summary] Sending enter to submit')
             window.electronAPI.writePty(ptyId, '\r')
+            // If in autowork-with-summary mode, send the work prompt after summary
+            if (shouldContinueAutoWork) {
+              setTimeout(() => {
+                console.log('[AutoWork+Summary] Sending work prompt after summary')
+                const autoworkPrompt = 'Run bd ready to check for tasks. If no tasks are available, say "All beads tasks complete!" and stop. Otherwise, pick ONE task to work on, complete it fully, close it with bd close <id>, then output the marker: three equals signs, AUTOWORK_CONTINUE, three equals signs.'
+                window.electronAPI.writePty(ptyId, autoworkPrompt)
+                setTimeout(() => {
+                  window.electronAPI.writePty(ptyId, '\r')
+                }, 100)
+              }, 1000)
+            }
           }, 500)
         }, 1500)
       }, 100)
@@ -537,9 +550,21 @@ export function Terminal({ ptyId, isActive, theme, onFocus }: TerminalProps) {
 
       // Auto Work Loop - detect continuation marker
       if (autoWorkModeRef.current && cleanChunk.includes('===AUTOWORK_CONTINUE===')) {
-        console.log('[AutoWork] Continuation marker detected!')
-        // Trigger the continuation (will run /clear then send prompt)
-        setPendingAutoWorkContinue(true)
+        console.log('[AutoWork] Continuation marker detected! withSummary:', autoWorkWithSummaryRef.current)
+        if (autoWorkWithSummaryRef.current) {
+          // With summaries: trigger summarize flow which will then continue autowork
+          summaryBufferRef.current = ''
+          capturingSummaryRef.current = true
+          console.log('[AutoWork+Summary] Starting summary capture')
+          const summarizePrompt = 'Summarize this session for context recovery. Wrap output in markers: three equals, SUMMARY_START, three equals at start. Three equals, SUMMARY_END, three equals at end.'
+          window.electronAPI.writePty(ptyId, summarizePrompt)
+          setTimeout(() => {
+            window.electronAPI.writePty(ptyId, '\r')
+          }, 100)
+        } else {
+          // Without summaries: just clear and continue
+          setPendingAutoWorkContinue(true)
+        }
       }
 
       // Strip autowork marker from display
@@ -793,7 +818,27 @@ export function Terminal({ ptyId, isActive, theme, onFocus }: TerminalProps) {
       case 'autowork':
         // Enable auto work mode, clear session first, then send prompt
         autoWorkModeRef.current = true
+        autoWorkWithSummaryRef.current = false
         console.log('[AutoWork] Mode enabled for ptyId:', ptyId)
+        // First run /clear to start fresh
+        window.electronAPI.writePty(ptyId, '/clear')
+        setTimeout(() => {
+          window.electronAPI.writePty(ptyId, '\r')
+          // After /clear completes, send the work prompt
+          setTimeout(() => {
+            const autoworkPrompt = 'Run bd ready to check for tasks. If no tasks are available, say "All beads tasks complete!" and stop. Otherwise, pick ONE task to work on, complete it fully, close it with bd close <id>, then output the marker: three equals signs, AUTOWORK_CONTINUE, three equals signs.'
+            window.electronAPI.writePty(ptyId, autoworkPrompt)
+            setTimeout(() => {
+              window.electronAPI.writePty(ptyId, '\r')
+            }, 100)
+          }, 1500)
+        }, 100)
+        break
+      case 'autoworksummary':
+        // Enable auto work mode WITH context preservation via summaries
+        autoWorkModeRef.current = true
+        autoWorkWithSummaryRef.current = true
+        console.log('[AutoWork+Context] Mode enabled for ptyId:', ptyId)
         // First run /clear to start fresh
         window.electronAPI.writePty(ptyId, '/clear')
         setTimeout(() => {
@@ -811,6 +856,7 @@ export function Terminal({ ptyId, isActive, theme, onFocus }: TerminalProps) {
       case 'stopwork':
         // Gracefully stop auto work loop after current task
         autoWorkModeRef.current = false
+        autoWorkWithSummaryRef.current = false
         console.log('[AutoWork] Mode disabled - will stop after current task')
         // Tell Claude to finish current task but not continue
         const stopPrompt = 'When you finish the current task, do NOT output the AUTOWORK_CONTINUE marker. Just complete this task and wait for further input.'
@@ -822,6 +868,7 @@ export function Terminal({ ptyId, isActive, theme, onFocus }: TerminalProps) {
       case 'cancel':
         // Send Escape to cancel current operation and disable auto work mode
         autoWorkModeRef.current = false
+        autoWorkWithSummaryRef.current = false
         console.log('[AutoWork] Mode disabled by cancel')
         window.electronAPI.writePty(ptyId, '\x1b')
         break
