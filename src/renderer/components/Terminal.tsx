@@ -164,6 +164,7 @@ export function Terminal({ ptyId, isActive, theme, onFocus }: TerminalProps) {
   const autoWorkWithSummaryRef = useRef(false)  // Preserves context via summaries
   const autoWorkAskQuestionsRef = useRef(false)  // Encourages asking questions
   const autoWorkPauseForReviewRef = useRef(false)  // Waits for user input before next task
+  const autoWorkFinalEvaluationRef = useRef(false)  // Provides testing instructions when done
   const [pendingAutoWorkContinue, setPendingAutoWorkContinue] = useState(false)
   const [awaitingUserReview, setAwaitingUserReview] = useState(false)  // Waiting for user to approve
 
@@ -175,6 +176,25 @@ export function Terminal({ ptyId, isActive, theme, onFocus }: TerminalProps) {
   useEffect(() => {
     isActiveRef.current = isActive
   }, [isActive])
+
+  // Build autowork prompt based on current options
+  const buildAutoWorkPrompt = () => {
+    // Build the "no tasks" completion message based on finalEvaluation option
+    let noTasksAction = 'say "All beads tasks complete!" and stop'
+    if (autoWorkFinalEvaluationRef.current) {
+      noTasksAction = 'run "bd list --status=closed" to see all completed tasks from this session. For each completed task, provide: 1) A brief summary of what was implemented, 2) How to test it (specific steps), 3) What to look for to verify it works. End with a checklist the user can follow to evaluate all the work.'
+    }
+
+    let prompt = `Run bd ready to check for tasks. If no tasks are available, ${noTasksAction} Otherwise, pick ONE task to work on, complete it fully, close it with bd close <id>`
+    if (autoWorkAskQuestionsRef.current) {
+      prompt = `Run bd ready to check for tasks. If no tasks are available, ${noTasksAction} Otherwise, pick ONE task to work on. Before starting, ask any clarifying questions you have about the requirements. Work on the task, asking questions as needed. When complete, close it with bd close <id>`
+    }
+    if (autoWorkPauseForReviewRef.current) {
+      prompt += ', then say "Task complete. Review the changes and provide feedback, or use Continue to Next Task to proceed."'
+    }
+    prompt += ' Then output the marker: three equals signs, AUTOWORK_CONTINUE, three equals signs.'
+    return prompt
+  }
 
   // Handle pending summary - trigger /clear and paste
   useEffect(() => {
@@ -199,7 +219,7 @@ export function Terminal({ ptyId, isActive, theme, onFocus }: TerminalProps) {
             if (shouldContinueAutoWork) {
               setTimeout(() => {
                 console.log('[AutoWork+Summary] Sending work prompt after summary')
-                const autoworkPrompt = 'Run bd ready to check for tasks. If no tasks are available, say "All beads tasks complete!" and stop. Otherwise, pick ONE task to work on, complete it fully, close it with bd close <id>, then output the marker: three equals signs, AUTOWORK_CONTINUE, three equals signs.'
+                const autoworkPrompt = buildAutoWorkPrompt()
                 window.electronAPI.writePty(ptyId, autoworkPrompt)
                 setTimeout(() => {
                   window.electronAPI.writePty(ptyId, '\r')
@@ -224,7 +244,7 @@ export function Terminal({ ptyId, isActive, theme, onFocus }: TerminalProps) {
         // After /clear completes, send the continuation prompt
         setTimeout(() => {
           console.log('[AutoWork] Sending continuation prompt')
-          const continuePrompt = 'Run bd ready to check for tasks. If no tasks are available, say "All beads tasks complete!" and stop. Otherwise, pick ONE task to work on, complete it fully, close it with bd close <id>, then output the marker: three equals signs, AUTOWORK_CONTINUE, three equals signs.'
+          const continuePrompt = buildAutoWorkPrompt()
           window.electronAPI.writePty(ptyId, continuePrompt)
           setTimeout(() => {
             window.electronAPI.writePty(ptyId, '\r')
@@ -833,18 +853,9 @@ export function Terminal({ ptyId, isActive, theme, onFocus }: TerminalProps) {
         autoWorkWithSummaryRef.current = options?.withContext ?? false
         autoWorkAskQuestionsRef.current = options?.askQuestions ?? false
         autoWorkPauseForReviewRef.current = options?.pauseForReview ?? false
+        autoWorkFinalEvaluationRef.current = options?.finalEvaluation ?? false
         setAwaitingUserReview(false)
         console.log('[AutoWork] Mode enabled with options:', options)
-
-        // Build the prompt based on options
-        let basePrompt = 'Run bd ready to check for tasks. If no tasks are available, say "All beads tasks complete!" and stop. Otherwise, pick ONE task to work on, complete it fully, close it with bd close <id>'
-        if (options?.askQuestions) {
-          basePrompt = 'Run bd ready to check for tasks. If no tasks are available, say "All beads tasks complete!" and stop. Otherwise, pick ONE task to work on. Before starting, ask any clarifying questions you have about the requirements. Work on the task, asking questions as needed. When complete, close it with bd close <id>'
-        }
-        if (options?.pauseForReview) {
-          basePrompt += ', then say "Task complete. Review the changes and provide feedback, or use Continue to Next Task to proceed."'
-        }
-        basePrompt += ' Then output the marker: three equals signs, AUTOWORK_CONTINUE, three equals signs.'
 
         // First run /clear to start fresh
         window.electronAPI.writePty(ptyId, '/clear')
@@ -852,7 +863,7 @@ export function Terminal({ ptyId, isActive, theme, onFocus }: TerminalProps) {
           window.electronAPI.writePty(ptyId, '\r')
           // After /clear completes, send the work prompt
           setTimeout(() => {
-            window.electronAPI.writePty(ptyId, basePrompt)
+            window.electronAPI.writePty(ptyId, buildAutoWorkPrompt())
             setTimeout(() => {
               window.electronAPI.writePty(ptyId, '\r')
             }, 100)
@@ -887,6 +898,7 @@ export function Terminal({ ptyId, isActive, theme, onFocus }: TerminalProps) {
         autoWorkWithSummaryRef.current = false
         autoWorkAskQuestionsRef.current = false
         autoWorkPauseForReviewRef.current = false
+        autoWorkFinalEvaluationRef.current = false
         setAwaitingUserReview(false)
         console.log('[AutoWork] Mode disabled - will stop after current task')
         // Tell Claude to finish current task but not continue
@@ -902,6 +914,7 @@ export function Terminal({ ptyId, isActive, theme, onFocus }: TerminalProps) {
         autoWorkWithSummaryRef.current = false
         autoWorkAskQuestionsRef.current = false
         autoWorkPauseForReviewRef.current = false
+        autoWorkFinalEvaluationRef.current = false
         setAwaitingUserReview(false)
         console.log('[AutoWork] Mode disabled by cancel')
         window.electronAPI.writePty(ptyId, '\x1b')

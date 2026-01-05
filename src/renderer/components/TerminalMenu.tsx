@@ -10,6 +10,7 @@ export interface AutoWorkOptions {
   withContext: boolean
   askQuestions: boolean
   pauseForReview: boolean
+  finalEvaluation: boolean
 }
 
 interface MenuItem {
@@ -32,6 +33,7 @@ const defaultAutoWorkOptions: AutoWorkOptions = {
   withContext: false,
   askQuestions: false,
   pauseForReview: false,
+  finalEvaluation: false,
 }
 
 export function TerminalMenu({ ptyId, onCommand }: TerminalMenuProps) {
@@ -93,6 +95,7 @@ export function TerminalMenu({ ptyId, onCommand }: TerminalMenuProps) {
         { id: 'toggle-context', label: 'With Context', isToggle: true, toggleKey: 'withContext' },
         { id: 'toggle-questions', label: 'Ask Questions', isToggle: true, toggleKey: 'askQuestions' },
         { id: 'toggle-review', label: 'Pause for Review', isToggle: true, toggleKey: 'pauseForReview' },
+        { id: 'toggle-evaluation', label: 'Final Evaluation', isToggle: true, toggleKey: 'finalEvaluation' },
         { id: 'divider2', label: '─────────────' },
         { id: 'continuework', label: 'Continue to Next Task' },
         { id: 'stopwork', label: 'Stop After Task' },
