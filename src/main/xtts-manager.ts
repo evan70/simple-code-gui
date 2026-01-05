@@ -13,7 +13,22 @@ const depsDir = path.join(app.getPath('userData'), 'deps')
 const xttsDir = path.join(depsDir, 'xtts')
 const xttsVoicesDir = path.join(xttsDir, 'voices')
 const xttsVenvDir = path.join(xttsDir, 'venv')
+const xttsPythonDir = path.join(xttsDir, 'python')
 const xttsScriptPath = path.join(xttsDir, 'xtts_helper.py')
+
+// Standalone Python download URL (python-build-standalone)
+const STANDALONE_PYTHON_VERSION = '3.12.12'
+const STANDALONE_PYTHON_TAG = '20251217'
+const STANDALONE_PYTHON_URL = isWindows
+  ? `https://github.com/astral-sh/python-build-standalone/releases/download/${STANDALONE_PYTHON_TAG}/cpython-${STANDALONE_PYTHON_VERSION}+${STANDALONE_PYTHON_TAG}-x86_64-pc-windows-msvc-install_only.tar.gz`
+  : `https://github.com/astral-sh/python-build-standalone/releases/download/${STANDALONE_PYTHON_TAG}/cpython-${STANDALONE_PYTHON_VERSION}+${STANDALONE_PYTHON_TAG}-x86_64-unknown-linux-gnu-install_only.tar.gz`
+
+// Get standalone Python path
+function getStandalonePython(): string {
+  return isWindows
+    ? path.join(xttsPythonDir, 'python', 'python.exe')
+    : path.join(xttsPythonDir, 'python', 'bin', 'python3')
+}
 
 // Get venv Python path
 function getVenvPython(): string {
@@ -158,21 +173,53 @@ class XTTSManager {
   }
 
   private async initPythonPath(): Promise<void> {
-    // Try to find Python
+    // Try to find Python 3.10-3.12 (required for coqui-tts)
+    // Prefer specific versions first, then fall back to generic python3
     const pythonCommands = isWindows
-      ? ['python', 'python3', 'py']
-      : ['python3', 'python']
+      ? ['python3.12', 'python3.11', 'python3.10', 'python', 'python3', 'py']
+      : ['python3.12', 'python3.11', 'python3.10', 'python3', 'python']
 
     for (const cmd of pythonCommands) {
       try {
         const { stdout } = await execAsync(`${cmd} --version`)
-        if (stdout.includes('Python 3')) {
-          this.pythonPath = cmd
-          break
+        const match = stdout.match(/Python 3\.(\d+)/)
+        if (match) {
+          const minorVersion = parseInt(match[1], 10)
+          // coqui-tts requires Python 3.10-3.12
+          if (minorVersion >= 10 && minorVersion <= 12) {
+            this.pythonPath = cmd
+            break
+          }
         }
       } catch {
         // Try next
       }
+    }
+
+    // If no compatible version found, try to at least find any Python 3 for error reporting
+    if (!this.pythonPath) {
+      for (const cmd of ['python3', 'python']) {
+        try {
+          const { stdout } = await execAsync(`${cmd} --version`)
+          if (stdout.includes('Python 3')) {
+            this.pythonPath = cmd
+            break
+          }
+        } catch {
+          // Try next
+        }
+      }
+    }
+  }
+
+  private async getPythonVersion(): Promise<string | null> {
+    if (!this.pythonPath) return null
+    try {
+      const { stdout } = await execAsync(`${this.pythonPath} --version`)
+      const match = stdout.match(/Python (3\.\d+\.\d+)/)
+      return match ? match[1] : null
+    } catch {
+      return null
     }
   }
 
@@ -234,24 +281,120 @@ class XTTSManager {
     }
   }
 
+  private async downloadStandalonePython(onProgress?: (status: string, percent?: number) => void): Promise<{ success: boolean; error?: string }> {
+    const standalonePython = getStandalonePython()
+    if (fs.existsSync(standalonePython)) {
+      return { success: true }
+    }
+
+    onProgress?.('Downloading Python 3.12...', 0)
+    ensureDir(xttsPythonDir)
+
+    const tarPath = path.join(xttsPythonDir, 'python.tar.gz')
+
+    try {
+      // Download the tarball
+      await new Promise<void>((resolve, reject) => {
+        const downloadWithRedirect = (url: string) => {
+          https.get(url, (response) => {
+            if (response.statusCode && [301, 302, 307, 308].includes(response.statusCode)) {
+              const location = response.headers.location
+              if (!location) {
+                reject(new Error('Redirect with no location'))
+                return
+              }
+              downloadWithRedirect(location)
+              return
+            }
+
+            if (response.statusCode !== 200) {
+              reject(new Error(`Download failed: HTTP ${response.statusCode}`))
+              return
+            }
+
+            const file = fs.createWriteStream(tarPath)
+            const total = parseInt(response.headers['content-length'] || '0', 10)
+            let downloaded = 0
+
+            response.on('data', (chunk) => {
+              downloaded += chunk.length
+              if (total > 0) {
+                const pct = Math.round((downloaded / total) * 30) // 0-30%
+                onProgress?.(`Downloading Python 3.12 (${Math.round(downloaded / 1024 / 1024)}MB)...`, pct)
+              }
+            })
+
+            response.pipe(file)
+            file.on('finish', () => {
+              file.close()
+              resolve()
+            })
+            file.on('error', (err) => {
+              file.close()
+              fs.unlinkSync(tarPath)
+              reject(err)
+            })
+          }).on('error', reject)
+        }
+
+        downloadWithRedirect(STANDALONE_PYTHON_URL)
+      })
+
+      // Extract the tarball
+      onProgress?.('Extracting Python 3.12...', 35)
+      await execAsync(`tar -xzf "${tarPath}" -C "${xttsPythonDir}"`, { timeout: 120000 })
+
+      // Cleanup
+      fs.unlinkSync(tarPath)
+
+      if (!fs.existsSync(standalonePython)) {
+        return { success: false, error: 'Python extraction failed' }
+      }
+
+      return { success: true }
+    } catch (e: any) {
+      if (fs.existsSync(tarPath)) fs.unlinkSync(tarPath)
+      return { success: false, error: e.message }
+    }
+  }
+
   async install(onProgress?: (status: string, percent?: number) => void): Promise<{ success: boolean; error?: string }> {
-    if (!this.pythonPath) {
-      await this.initPythonPath()
-    }
-
-    if (!this.pythonPath) {
-      return { success: false, error: 'Python 3 not found' }
-    }
-
     try {
       ensureDir(xttsDir)
 
+      // First, ensure we have a compatible Python (download standalone if needed)
+      const standalonePython = getStandalonePython()
+      let pythonToUse: string
+
+      if (fs.existsSync(standalonePython)) {
+        pythonToUse = standalonePython
+      } else {
+        // Check if system has compatible Python
+        if (!this.pythonPath) {
+          await this.initPythonPath()
+        }
+
+        const version = await this.getPythonVersion()
+        const hasCompatiblePython = version && /3\.(10|11|12)\./.test(version)
+
+        if (!hasCompatiblePython) {
+          // Download standalone Python
+          const downloadResult = await this.downloadStandalonePython(onProgress)
+          if (!downloadResult.success) {
+            return { success: false, error: downloadResult.error || 'Failed to download Python' }
+          }
+          pythonToUse = standalonePython
+        } else {
+          pythonToUse = this.pythonPath!
+        }
+      }
+
       // Create virtual environment
-      onProgress?.('Creating virtual environment...', 5)
+      onProgress?.('Creating virtual environment...', 40)
       const venvPython = getVenvPython()
 
       if (!fs.existsSync(venvPython)) {
-        await execAsync(`${this.pythonPath} -m venv "${xttsVenvDir}"`, { timeout: 120000 })
+        await execAsync(`"${pythonToUse}" -m venv "${xttsVenvDir}"`, { timeout: 120000 })
       }
 
       if (!fs.existsSync(venvPython)) {
@@ -259,15 +402,15 @@ class XTTSManager {
       }
 
       // Upgrade pip in venv
-      onProgress?.('Upgrading pip...', 10)
+      onProgress?.('Upgrading pip...', 50)
       await execAsync(`"${venvPython}" -m pip install --upgrade pip`, { timeout: 120000 })
 
-      // Install TTS (this is the main package that includes XTTS)
-      onProgress?.('Installing TTS library (this may take several minutes)...', 20)
-      await execAsync(`"${venvPython}" -m pip install TTS`, {
+      // Install coqui-tts (the maintained fork that supports Python 3.12)
+      onProgress?.('Installing TTS library (this may take several minutes)...', 55)
+      await execAsync(`"${venvPython}" -m pip install coqui-tts`, {
         timeout: 900000  // 15 minutes - it's a large package with many dependencies
       })
-      onProgress?.('TTS library installed', 90)
+      onProgress?.('TTS library installed', 95)
 
       // Verify installation
       const status = await this.checkInstallation()
