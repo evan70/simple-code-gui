@@ -1,5 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react'
 import ReactDOM from 'react-dom'
+import { CommandMenuItem, getCommandMenuItems } from '../utils/backendCommands'
 
 interface TerminalMenuProps {
   ptyId: string
@@ -16,7 +17,7 @@ export interface AutoWorkOptions {
   gitCommitEachTask: boolean
 }
 
-interface MenuItem {
+interface MenuItem extends CommandMenuItem {
   id: string
   label: string
   isToggle?: boolean
@@ -76,22 +77,13 @@ export function TerminalMenu({ ptyId, onCommand, currentBackend, onBackendChange
   }, [autoWorkOptions])
 
   // Menu structure with toggles
+  const commandItems = getCommandMenuItems(currentBackend)
+
   const menuCategories: MenuCategory[] = [
     {
       id: 'commands',
       label: 'Commands',
-      items: [
-        { id: 'help', label: '/help' },
-        { id: 'clear', label: '/clear' },
-        { id: 'compact', label: '/compact' },
-        { id: 'cost', label: '/cost' },
-        { id: 'status', label: '/status' },
-        { id: 'model', label: '/model' },
-        { id: 'config', label: '/config' },
-        { id: 'doctor', label: '/doctor' },
-        { id: 'divider-cmd', label: '─────────────' },
-        { id: 'addcommand', label: '+ Add Custom Command' },
-      ],
+      items: commandItems,
     },
     {
       id: 'automation',
@@ -123,6 +115,7 @@ export function TerminalMenu({ ptyId, onCommand, currentBackend, onBackendChange
       items: [
         { id: 'claude', label: 'Claude' },
         { id: 'gemini', label: 'Gemini' },
+        { id: 'codex', label: 'Codex' },
       ],
     },
   ]
@@ -162,6 +155,10 @@ export function TerminalMenu({ ptyId, onCommand, currentBackend, onBackendChange
   const handleMenuAction = (item: MenuItem, categoryId?: string) => {
     if (item.id.startsWith('divider')) {
       return // Do nothing for dividers
+    }
+
+    if (item.disabled) {
+      return
     }
 
     if (categoryId === 'backend') {
@@ -277,8 +274,9 @@ export function TerminalMenu({ ptyId, onCommand, currentBackend, onBackendChange
           return (
             <button
               key={item.id}
-              className={`terminal-menu-item ${isToggle ? 'toggle-item' : ''} ${isChecked ? 'checked' : ''} ${category.id === 'backend' && item.id === currentBackend ? 'selected' : ''}`}
+              className={`terminal-menu-item ${isToggle ? 'toggle-item' : ''} ${isChecked ? 'checked' : ''} ${item.disabled ? 'disabled' : ''} ${category.id === 'backend' && item.id === currentBackend ? 'selected' : ''}`}
               onClick={() => handleMenuAction(item, category.id)}
+              disabled={item.disabled}
             >
               {isToggle && (
                 <span className="toggle-indicator">{isChecked ? '✓' : ' '}</span>
@@ -331,4 +329,3 @@ export function TerminalMenu({ ptyId, onCommand, currentBackend, onBackendChange
     </>
   )
 }
-

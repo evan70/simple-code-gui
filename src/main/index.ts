@@ -60,6 +60,7 @@ const apiServerManager = new ApiServerManager()
 
 // Track which PTY belongs to which project
 const ptyToProject: Map<string, string> = new Map()  // ptyId -> projectPath
+const ptyToBackend: Map<string, string> = new Map()  // ptyId -> backend
 
 // Track pending API prompts waiting for a new session to be created
 interface PendingApiPrompt {
@@ -72,6 +73,15 @@ const pendingApiPrompts: Map<string, PendingApiPrompt> = new Map()  // projectPa
 
 // Track sessions that should auto-close after completion
 const autoCloseSessions: Set<string> = new Set()  // ptyId
+
+const maybeRespondToCursorPositionRequest = (ptyId: string, data: string) => {
+  const backend = ptyToBackend.get(ptyId)
+  if (!backend || backend === 'claude') return
+  if (data.includes('\x1b[6n') || data.includes('\x1b[?6n')) {
+    // Provide a basic cursor position response to avoid CLI startup timeouts.
+    ptyManager.write(ptyId, '\x1b[1;1R')
+  }
+}
 
 // Set up API server session mode getter
 apiServerManager.setSessionModeGetter((projectPath) => {
@@ -270,16 +280,18 @@ ipcMain.handle('sessions:discover', (_, projectPath: string) => {
 })
 
 // PTY management
-ipcMain.handle('pty:spawn', (_, { cwd, sessionId, model }: { cwd: string; sessionId?: string; model?: string }) => {
+ipcMain.handle('pty:spawn', (_, { cwd, sessionId, model, backend }: { cwd: string; sessionId?: string; model?: string; backend?: string }) => {
   try {
     const workspace = sessionStore.getWorkspace()
     const project = workspace.projects.find(p => p.path === cwd)
     const globalSettings = sessionStore.getSettings()
 
-    // Determine effective backend: Project override > Global setting > 'claude' default
-    const effectiveBackend = (project?.backend && project.backend !== 'default')
-      ? project.backend
-      : (globalSettings.backend || 'claude')
+    // Determine effective backend: Request override > Project override > Global setting > 'claude' default
+    const effectiveBackend = (backend && backend !== 'default')
+      ? backend
+      : (project?.backend && project.backend !== 'default')
+        ? project.backend
+        : (globalSettings.backend || 'claude')
 
     // Determine effective sessionId: Only use if backend is 'claude', otherwise start fresh
     const effectiveSessionId = (effectiveBackend === 'claude') ? sessionId : undefined;
@@ -307,6 +319,7 @@ ipcMain.handle('pty:spawn', (_, { cwd, sessionId, model }: { cwd: string; sessio
 
     // Track PTY to project mapping
     ptyToProject.set(id, cwd)
+    ptyToBackend.set(id, effectiveBackend)
 
     // Start API server if project has a port configured (reuse project from above)
     if (project?.apiPort && !apiServerManager.isRunning(cwd)) {
@@ -314,12 +327,14 @@ ipcMain.handle('pty:spawn', (_, { cwd, sessionId, model }: { cwd: string; sessio
     }
 
     ptyManager.onData(id, (data) => {
+      maybeRespondToCursorPositionRequest(id, data)
       mainWindow?.webContents.send(`pty:data:${id}`, data)
     })
 
     ptyManager.onExit(id, (code) => {
       mainWindow?.webContents.send(`pty:exit:${id}`, code)
       ptyToProject.delete(id)
+      ptyToBackend.delete(id)
       autoCloseSessions.delete(id)
     })
 
@@ -359,6 +374,7 @@ ipcMain.on('pty:resize', (_, { id, cols, rows }: { id: string; cols: number; row
 
 ipcMain.on('pty:kill', (_, id: string) => {
   ptyToProject.delete(id)
+  ptyToBackend.delete(id)
   ptyManager.kill(id)
 })
 
@@ -392,14 +408,18 @@ ipcMain.handle('pty:set-backend', async (_, { id: oldId, backend: newBackend }: 
     ptyToProject.set(newId, projectPath)
     ptyToProject.delete(oldId)
   }
+  ptyToBackend.set(newId, newBackend)
+  ptyToBackend.delete(oldId)
 
   ptyManager.onData(newId, (data) => {
+    maybeRespondToCursorPositionRequest(newId, data)
     mainWindow?.webContents.send(`pty:data:${newId}`, data)
   })
 
   ptyManager.onExit(newId, (code) => {
     mainWindow?.webContents.send(`pty:exit:${newId}`, code)
     ptyToProject.delete(newId)
+    ptyToBackend.delete(newId)
   })
 
   mainWindow?.webContents.send('pty:recreated', { oldId, newId, backend: newBackend })

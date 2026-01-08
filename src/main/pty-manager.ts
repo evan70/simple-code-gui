@@ -51,6 +51,9 @@ function findExecutable(backend: string = 'claude'): string {
   if (backend === 'gemini') {
     return findGeminiExecutable()
   }
+  if (backend === 'codex') {
+    return findCodexExecutable()
+  }
   return findClaudeExecutable()
 }
 
@@ -82,6 +85,36 @@ function findGeminiExecutable(): string {
 
   // Fall back to just 'gemini' and let PATH resolve it
   return 'gemini'
+}
+
+// Find codex executable - on Windows, npm installs .cmd files
+function findCodexExecutable(): string {
+  if (!isWindows) {
+    return 'codex'
+  }
+
+  // On Windows, check for codex.cmd in portable npm-global first
+  const portableDirs = getPortableBinDirs()
+  for (const dir of portableDirs) {
+    const codexCmd = path.join(dir, 'codex.cmd')
+    if (fs.existsSync(codexCmd)) {
+      console.log('Found Codex at (portable):', codexCmd)
+      return codexCmd
+    }
+  }
+
+  // Then check for codex.cmd in system npm paths
+  const additionalPaths = getAdditionalPaths()
+  for (const dir of additionalPaths) {
+    const codexCmd = path.join(dir, 'codex.cmd')
+    if (fs.existsSync(codexCmd)) {
+      console.log('Found Codex at:', codexCmd)
+      return codexCmd
+    }
+  }
+
+  // Fall back to just 'codex' and let PATH resolve it
+  return 'codex'
 }
 
 // Find claude executable - on Windows, npm installs .cmd files

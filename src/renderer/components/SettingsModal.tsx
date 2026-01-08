@@ -58,6 +58,7 @@ const PERMISSION_MODES = [
 const BACKEND_MODES = [
   { label: 'Claude', value: 'claude', desc: 'Use Claude for code generation' },
   { label: 'Gemini', value: 'gemini', desc: 'Use Gemini for code generation' },
+  { label: 'Codex', value: 'codex', desc: 'Use Codex for code generation' },
 ]
 
 interface SettingsModalProps {

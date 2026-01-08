@@ -10,11 +10,13 @@
   --bg-surface: #1a1a1f;
   --bg-hover: #222228;
   --bg-active: #2a2a32;
+  --bg-tertiary: var(--bg-hover);
 
   /* Borders */
   --border-subtle: rgba(255, 255, 255, 0.06);
   --border-default: rgba(255, 255, 255, 0.1);
   --border-strong: rgba(255, 255, 255, 0.15);
+  --border-color: var(--border-default);
 
   /* Text */
   --text-primary: #e8e8ed;
@@ -2980,7 +2982,7 @@ html, body, #root {
 .beads-task-check {
   background: none;
   border: none;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   cursor: pointer;
   font-size: 14px;
   padding: 0;
@@ -2997,7 +2999,7 @@ html, body, #root {
 .beads-task-start {
   background: none;
   border: none;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   cursor: pointer;
   font-size: 10px;
   padding: 0;
@@ -3054,7 +3056,7 @@ html, body, #root {
 }
 
 .beads-task-status.status-open {
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
 }
 
 .beads-task-status.status-in_progress {
@@ -3068,7 +3070,7 @@ html, body, #root {
 .beads-task-delete {
   background: none;
   border: none;
-  color: var(--text-muted);
+  color: var(--text-tertiary);
   cursor: pointer;
   font-size: 14px;
   padding: 0 2px;
@@ -3116,7 +3118,7 @@ html, body, #root {
 
 .beads-task-id {
   font-size: 11px;
-  color: var(--text-muted);
+  color: var(--text-secondary);
   font-family: var(--font-mono);
 }
 
@@ -4309,6 +4311,13 @@ html, body, #root {
   text-align: left;
   cursor: pointer;
   transition: background var(--transition-fast);
+}
+
+.terminal-menu-item.disabled,
+.terminal-menu-item:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+  background: none;
 }
 
 .terminal-menu-item:hover {

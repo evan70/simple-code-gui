@@ -17,8 +17,8 @@ declare global {
       saveWorkspace: (workspace: any) => Promise<void>
       addProject: () => Promise<string | null>
       discoverSessions: (projectPath: string) => Promise<any[]>
-      getSettings: () => Promise<{ defaultProjectDir: string; theme: string; autoAcceptTools?: string[]; permissionMode?: string }>
-      saveSettings: (settings: { defaultProjectDir: string; theme: string; autoAcceptTools?: string[]; permissionMode?: string }) => Promise<void>
+      getSettings: () => Promise<{ defaultProjectDir: string; theme: string; autoAcceptTools?: string[]; permissionMode?: string; backend?: string }>
+      saveSettings: (settings: { defaultProjectDir: string; theme: string; autoAcceptTools?: string[]; permissionMode?: string; backend?: string }) => Promise<void>
       selectDirectory: () => Promise<string | null>
       createProject: (name: string, parentDir: string) => Promise<{ success: boolean; path?: string; error?: string }>
       selectExecutable: () => Promise<string | null>
@@ -39,7 +39,7 @@ declare global {
       beadsComplete: (cwd: string, taskId: string) => Promise<{ success: boolean; result?: any; error?: string }>
       beadsDelete: (cwd: string, taskId: string) => Promise<{ success: boolean; error?: string }>
       beadsStart: (cwd: string, taskId: string) => Promise<{ success: boolean; error?: string }>
-      spawnPty: (cwd: string, sessionId?: string, model?: string) => Promise<string>
+      spawnPty: (cwd: string, sessionId?: string, model?: string, backend?: string) => Promise<string>
       writePty: (id: string, data: string) => void
       resizePty: (id: string, cols: number, rows: number) => void
       killPty: (id: string) => void
@@ -187,50 +187,58 @@ function App() {
 
         if (workspace.openTabs && workspace.openTabs.length > 0) {
           const currentTabs = useWorkspaceStore.getState().openTabs
-          const openSessionIds = new Set(currentTabs.map(t => t.sessionId).filter(Boolean))
+          const usedSessionIds = new Set(currentTabs.map(t => t.sessionId).filter(Boolean))
+          const sessionsCache = new Map<string, { list: { sessionId: string; slug: string }[]; nextIndex: number }>()
 
           for (const savedTab of workspace.openTabs) {
             try {
               // Always install TTS instructions so Claude uses <tts> tags
               await window.electronAPI.ttsInstallInstructions?.(savedTab.projectPath)
 
-              // Check if the stored session still exists - only fall back to most recent if it was deleted
-              let sessionIdToRestore = savedTab.sessionId
-              let titleToRestore = savedTab.title
-              const sessions = await window.electronAPI.discoverSessions(savedTab.projectPath)
-              if (sessions.length > 0) {
-                // Check if the stored session still exists
-                const storedSessionExists = savedTab.sessionId &&
-                  sessions.some(s => s.sessionId === savedTab.sessionId)
+              // Always restore to the most recent sessions for this project
+              let sessionIdToRestore: string | undefined
+              const projectName = savedTab.projectPath.split(/[/\\]/).pop() || savedTab.projectPath
+              let titleToRestore = savedTab.title || `${projectName} - New`
 
-                if (!storedSessionExists) {
-                  // Only use most recent if stored session no longer exists (e.g., after /clear)
-                  const mostRecent = sessions[0]
-                  sessionIdToRestore = mostRecent.sessionId
-                  titleToRestore = `${savedTab.projectPath.split(/[/\\]/).pop() || savedTab.projectPath} - ${mostRecent.slug}`
+              let sessionsForProject = sessionsCache.get(savedTab.projectPath)
+              if (!sessionsForProject) {
+                const list = await window.electronAPI.discoverSessions(savedTab.projectPath)
+                sessionsForProject = { list, nextIndex: 0 }
+                sessionsCache.set(savedTab.projectPath, sessionsForProject)
+              }
+
+              const list = sessionsForProject.list || []
+              for (let i = sessionsForProject.nextIndex; i < list.length; i++) {
+                const candidate = list[i]
+                if (!usedSessionIds.has(candidate.sessionId)) {
+                  sessionIdToRestore = candidate.sessionId
+                  titleToRestore = `${projectName} - ${candidate.slug}`
+                  sessionsForProject.nextIndex = i + 1
+                  break
                 }
               }
 
-              // Skip if this session is already open
-              if (sessionIdToRestore && openSessionIds.has(sessionIdToRestore)) {
+              // Skip if we ran out of sessions to restore for this project
+              if (!sessionIdToRestore) {
                 continue
               }
+
+              // Get project and determine effective backend for restored tab
+              const projectForTab = workspace.projects?.find(p => p.path === savedTab.projectPath)
+              const effectiveBackendForTab = projectForTab?.backend && projectForTab.backend !== 'default'
+                ? projectForTab.backend
+                : settings?.backend || 'claude'
 
               const ptyId = await window.electronAPI.spawnPty(
                 savedTab.projectPath,
                 sessionIdToRestore,
-                undefined // model
+                undefined, // model
+                effectiveBackendForTab
               )
               // Map old tab ID to new ptyId for layout restoration
               if (savedTab.id) {
                 idMapping.set(savedTab.id, ptyId)
               }
-
-              // Get project and determine effective backend for restored tab
-              const projectForTab = projects.find(p => p.path === savedTab.projectPath)
-              const effectiveBackendForTab = projectForTab?.backend && projectForTab.backend !== 'default'
-                ? projectForTab.backend
-                : settings?.backend || 'claude'
 
               addTab({
                 id: ptyId,
@@ -240,10 +248,7 @@ function App() {
                 ptyId,
                 backend: effectiveBackendForTab
               })
-              // Track this session as now open
-              if (sessionIdToRestore) {
-                openSessionIds.add(sessionIdToRestore)
-              }
+              usedSessionIds.add(sessionIdToRestore)
             } catch (e) {
             }
           }
@@ -359,7 +364,7 @@ function App() {
         // Always install TTS instructions so Claude uses <tts> tags
         await window.electronAPI.ttsInstallInstructions?.(projectPath)
 
-        const ptyId = await window.electronAPI.spawnPty(projectPath, undefined, model)
+        const ptyId = await window.electronAPI.spawnPty(projectPath, undefined, model, effectiveBackend)
         addTab({
           id: ptyId,
           projectPath,
@@ -429,7 +434,7 @@ function App() {
       await window.electronAPI.ttsInstallInstructions?.(projectPath)
 
       // ptyId = await window.electronAPI.spawnPty(projectPath, sessionId, model?, backend?)
-      const ptyId = await window.electronAPI.spawnPty(projectPath, sessionId, undefined)
+      const ptyId = await window.electronAPI.spawnPty(projectPath, sessionId, undefined, effectiveBackend)
       addTab({
         id: ptyId,
         projectPath,

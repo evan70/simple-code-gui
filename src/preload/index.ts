@@ -9,7 +9,7 @@ export interface Settings {
   voiceSkipOnNew?: boolean
   autoAcceptTools?: string[]
   permissionMode?: string
-  backend?: string
+  backend?: 'claude' | 'gemini' | 'codex'
 }
 
 export interface ElectronAPI {
@@ -111,7 +111,7 @@ export interface ElectronAPI {
   xttsExtractAudioClip: (inputPath: string, startTime: number, endTime: number) => Promise<{ success: boolean; outputPath?: string; dataUrl?: string; error?: string }>
 
   // PTY
-  spawnPty: (cwd: string, sessionId?: string, model?: string) => Promise<string>
+  spawnPty: (cwd: string, sessionId?: string, model?: string, backend?: string) => Promise<string>
   writePty: (id: string, data: string) => void
   resizePty: (id: string, cols: number, rows: number) => void
   killPty: (id: string) => void
@@ -250,7 +250,7 @@ const api: ElectronAPI = {
   xttsExtractAudioClip: (inputPath, startTime, endTime) => ipcRenderer.invoke('xtts:extractAudioClip', { inputPath, startTime, endTime }),
 
   // PTY management
-  spawnPty: (cwd, sessionId, model) => ipcRenderer.invoke('pty:spawn', { cwd, sessionId, model }),
+  spawnPty: (cwd, sessionId, model, backend) => ipcRenderer.invoke('pty:spawn', { cwd, sessionId, model, backend }),
   writePty: (id, data) => ipcRenderer.send('pty:write', { id, data }),
   resizePty: (id, cols, rows) => ipcRenderer.send('pty:resize', { id, cols, rows }),
   killPty: (id) => ipcRenderer.send('pty:kill', id),

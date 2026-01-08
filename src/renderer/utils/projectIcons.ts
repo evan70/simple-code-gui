@@ -33,6 +33,7 @@ const keywordIcons: Record<string, string> = {
   model: '🤖',
   llm: '🤖',
   claude: '🟠',
+  codex: '📘',
   gpt: '🤖',
   comfy: '🎨',
   comfyui: '🎨',

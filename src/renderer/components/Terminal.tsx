@@ -6,6 +6,7 @@ import { Theme } from '../themes'
 import { useVoice } from '../contexts/VoiceContext'
 import { TerminalMenu, AutoWorkOptions } from './TerminalMenu'
 import { CustomCommandModal } from './CustomCommandModal'
+import { resolveBackendCommand } from '../utils/backendCommands'
 
 // Global buffer to persist terminal data across HMR remounts
 // Use window to persist across module re-execution during HMR
@@ -28,13 +29,30 @@ export function clearTerminalBuffer(ptyId: string) {
 // Debug flag - set to true to log scroll events
 const DEBUG_SCROLL = false
 
+const formatPathForBackend = (path: string, backend?: string): string => {
+  const normalized = backend && backend !== 'default' ? backend : 'claude'
+  const escaped = path.includes('"') ? path.replace(/"/g, '\\"') : path
+  const safePath = /\s/.test(escaped) ? `"${escaped}"` : escaped
+
+  if (normalized === 'gemini') {
+    return `@path ${safePath}`
+  }
+  if (normalized === 'codex') {
+    return `@${safePath}`
+  }
+  return safePath
+}
+
+const formatPathsForBackend = (paths: string[], backend?: string): string =>
+  paths.map((path) => formatPathForBackend(path, backend)).join(' ')
+
 // Custom paste handler for xterm - supports text, file paths, and images
-async function handlePaste(term: XTerm, ptyId: string) {
+async function handlePaste(term: XTerm, ptyId: string, backend?: string) {
   try {
     // First check if clipboard has an image or file (using Electron's native clipboard)
     const imageResult = await window.electronAPI.readClipboardImage()
     if (imageResult.success && imageResult.hasImage && imageResult.path) {
-      window.electronAPI.writePty(ptyId, imageResult.path)
+      window.electronAPI.writePty(ptyId, formatPathForBackend(imageResult.path, backend))
       return
     }
 
@@ -188,6 +206,18 @@ export function Terminal({ ptyId, isActive, theme, onFocus, projectPath, backend
     isActiveRef.current = isActive
   }, [isActive])
 
+  const sendBackendCommand = (commandId: string) => {
+    const backendCommand = resolveBackendCommand(backend, commandId)
+    if (!backendCommand) {
+      return false
+    }
+    window.electronAPI.writePty(ptyId, backendCommand)
+    setTimeout(() => {
+      window.electronAPI.writePty(ptyId, '\r')
+    }, 100)
+    return true
+  }
+
   // Build autowork prompt based on current options
   const buildAutoWorkPrompt = () => {
     // Build the "no tasks" completion message based on finalEvaluation option
@@ -217,33 +247,28 @@ export function Terminal({ ptyId, isActive, theme, onFocus, projectPath, backend
       const summaryToSend = pendingSummary  // Capture value before clearing state
       const shouldContinueAutoWork = autoWorkWithSummaryRef.current  // Check if in autowork-with-summary mode
       console.log('[Summary] useEffect triggered, running /clear, summary length:', summaryToSend.length, 'autowork:', shouldContinueAutoWork)
-      // Run /clear
-      window.electronAPI.writePty(ptyId, '/clear')
+      const didClear = sendBackendCommand('clear')
+      const clearDelay = didClear ? 1500 : 0
       setTimeout(() => {
-        console.log('[Summary] Sending enter for /clear')
-        window.electronAPI.writePty(ptyId, '\r')
-        // After /clear, paste summary
+        console.log('[Summary] Pasting summary:', summaryToSend.substring(0, 50) + '...')
+        window.electronAPI.writePty(ptyId, summaryToSend)
+        // Wait longer after pasting to let terminal render, then send enter
         setTimeout(() => {
-          console.log('[Summary] Pasting summary:', summaryToSend.substring(0, 50) + '...')
-          window.electronAPI.writePty(ptyId, summaryToSend)
-          // Wait longer after pasting to let terminal render, then send enter
-          setTimeout(() => {
-            console.log('[Summary] Sending enter to submit')
-            window.electronAPI.writePty(ptyId, '\r')
-            // If in autowork-with-summary mode, send the work prompt after summary
-            if (shouldContinueAutoWork) {
+          console.log('[Summary] Sending enter to submit')
+          window.electronAPI.writePty(ptyId, '\r')
+          // If in autowork-with-summary mode, send the work prompt after summary
+          if (shouldContinueAutoWork) {
+            setTimeout(() => {
+              console.log('[AutoWork+Summary] Sending work prompt after summary')
+              const autoworkPrompt = buildAutoWorkPrompt()
+              window.electronAPI.writePty(ptyId, autoworkPrompt)
               setTimeout(() => {
-                console.log('[AutoWork+Summary] Sending work prompt after summary')
-                const autoworkPrompt = buildAutoWorkPrompt()
-                window.electronAPI.writePty(ptyId, autoworkPrompt)
-                setTimeout(() => {
-                  window.electronAPI.writePty(ptyId, '\r')
-                }, 100)
-              }, 1000)
-            }
-          }, 500)
-        }, 1500)
-      }, 100)
+                window.electronAPI.writePty(ptyId, '\r')
+              }, 100)
+            }, 1000)
+          }
+        }, 500)
+      }, clearDelay)
       setPendingSummary(null)
     }
   }, [pendingSummary, ptyId])
@@ -252,20 +277,16 @@ export function Terminal({ ptyId, isActive, theme, onFocus, projectPath, backend
   useEffect(() => {
     if (pendingAutoWorkContinue) {
       console.log('[AutoWork] Continuation triggered, running /clear')
-      // Run /clear first
-      window.electronAPI.writePty(ptyId, '/clear')
+      const didClear = sendBackendCommand('clear')
+      const clearDelay = didClear ? 1500 : 0
       setTimeout(() => {
-        window.electronAPI.writePty(ptyId, '\r')
-        // After /clear completes, send the continuation prompt
+        console.log('[AutoWork] Sending continuation prompt')
+        const continuePrompt = buildAutoWorkPrompt()
+        window.electronAPI.writePty(ptyId, continuePrompt)
         setTimeout(() => {
-          console.log('[AutoWork] Sending continuation prompt')
-          const continuePrompt = buildAutoWorkPrompt()
-          window.electronAPI.writePty(ptyId, continuePrompt)
-          setTimeout(() => {
-            window.electronAPI.writePty(ptyId, '\r')
-          }, 100)
-        }, 1500)
-      }, 100)
+          window.electronAPI.writePty(ptyId, '\r')
+        }, 100)
+      }, clearDelay)
       setPendingAutoWorkContinue(false)
     }
   }, [pendingAutoWorkContinue, ptyId])
@@ -418,7 +439,7 @@ export function Terminal({ ptyId, isActive, theme, onFocus, projectPath, backend
       // Ctrl+Shift+V or Ctrl+V for paste
       if (event.ctrlKey && (event.key === 'V' || event.key === 'v')) {
         event.preventDefault()  // Prevent browser's native paste (which would cause duplicate)
-        handlePaste(terminal, ptyId)
+        handlePaste(terminal, ptyId, backend)
         return false
       }
 
@@ -442,7 +463,7 @@ export function Terminal({ ptyId, isActive, theme, onFocus, projectPath, backend
         navigator.clipboard.writeText(selection)
       } else {
         // No selection - paste (handlePaste preserves scroll)
-        handlePaste(terminal, ptyId)
+        handlePaste(terminal, ptyId, backend)
       }
     })
 
@@ -450,7 +471,7 @@ export function Terminal({ ptyId, isActive, theme, onFocus, projectPath, backend
     containerRef.current.addEventListener('auxclick', (e) => {
       if (e.button === 1) {  // Middle button
         e.preventDefault()
-        handlePaste(terminal, ptyId)
+        handlePaste(terminal, ptyId, backend)
       }
     })
 
@@ -789,7 +810,7 @@ export function Terminal({ ptyId, isActive, theme, onFocus, projectPath, backend
     }
 
     if (paths.length > 0) {
-      window.electronAPI.writePty(ptyId, paths.join(' '))
+      window.electronAPI.writePty(ptyId, formatPathsForBackend(paths, backend))
     }
   }
 
@@ -800,6 +821,10 @@ export function Terminal({ ptyId, isActive, theme, onFocus, projectPath, backend
   }
 
   const handleMenuCommand = (command: string, options?: AutoWorkOptions) => {
+    if (sendBackendCommand(command)) {
+      return
+    }
+
     switch (command) {
       case 'summarize':
         // Start capture immediately - prompt doesn't have literal markers so won't match
@@ -809,55 +834,6 @@ export function Terminal({ ptyId, isActive, theme, onFocus, projectPath, backend
         // Prompt describes markers without using them literally
         const summarizePrompt = 'Summarize this session for context recovery. Wrap output in markers: three equals, SUMMARY_START, three equals at start. Three equals, SUMMARY_END, three equals at end.'
         window.electronAPI.writePty(ptyId, summarizePrompt)
-        setTimeout(() => {
-          window.electronAPI.writePty(ptyId, '\r')
-        }, 100)
-        break
-      case 'clear':
-        // Run /clear command
-        window.electronAPI.writePty(ptyId, '/clear')
-        setTimeout(() => {
-          window.electronAPI.writePty(ptyId, '\r')
-        }, 100)
-        break
-      case 'help':
-        window.electronAPI.writePty(ptyId, '/help')
-        setTimeout(() => {
-          window.electronAPI.writePty(ptyId, '\r')
-        }, 100)
-        break
-      case 'compact':
-        window.electronAPI.writePty(ptyId, '/compact')
-        setTimeout(() => {
-          window.electronAPI.writePty(ptyId, '\r')
-        }, 100)
-        break
-      case 'cost':
-        window.electronAPI.writePty(ptyId, '/cost')
-        setTimeout(() => {
-          window.electronAPI.writePty(ptyId, '\r')
-        }, 100)
-        break
-      case 'status':
-        window.electronAPI.writePty(ptyId, '/status')
-        setTimeout(() => {
-          window.electronAPI.writePty(ptyId, '\r')
-        }, 100)
-        break
-      case 'model':
-        window.electronAPI.writePty(ptyId, '/model')
-        setTimeout(() => {
-          window.electronAPI.writePty(ptyId, '\r')
-        }, 100)
-        break
-      case 'config':
-        window.electronAPI.writePty(ptyId, '/config')
-        setTimeout(() => {
-          window.electronAPI.writePty(ptyId, '\r')
-        }, 100)
-        break
-      case 'doctor':
-        window.electronAPI.writePty(ptyId, '/doctor')
         setTimeout(() => {
           window.electronAPI.writePty(ptyId, '\r')
         }, 100)
@@ -873,18 +849,14 @@ export function Terminal({ ptyId, isActive, theme, onFocus, projectPath, backend
         setAwaitingUserReview(false)
         console.log('[AutoWork] Mode enabled with options:', options)
 
-        // First run /clear to start fresh
-        window.electronAPI.writePty(ptyId, '/clear')
+        const didClear = sendBackendCommand('clear')
+        const clearDelay = didClear ? 1500 : 0
         setTimeout(() => {
-          window.electronAPI.writePty(ptyId, '\r')
-          // After /clear completes, send the work prompt
+          window.electronAPI.writePty(ptyId, buildAutoWorkPrompt())
           setTimeout(() => {
-            window.electronAPI.writePty(ptyId, buildAutoWorkPrompt())
-            setTimeout(() => {
-              window.electronAPI.writePty(ptyId, '\r')
-            }, 100)
-          }, 1500)
-        }, 100)
+            window.electronAPI.writePty(ptyId, '\r')
+          }, 100)
+        }, clearDelay)
         break
       case 'continuework':
         // Continue to next task (used after pause for review)
