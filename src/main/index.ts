@@ -885,24 +885,24 @@ ipcMain.handle('beads:install', async () => {
 
 // ==================== VOICE (STT/TTS) ====================
 
-// TTS instructions to append to CLAUDE.md - tells Claude to wrap speakable prose in <tts> tags
+// TTS instructions to append to CLAUDE.md - tells Claude to wrap speakable prose in «tts» tags
 const TTS_INSTRUCTIONS_START = '\n\n<!-- TTS_VOICE_OUTPUT_START -->'
 const TTS_INSTRUCTIONS_END = '<!-- TTS_VOICE_OUTPUT_END -->\n'
 const TTS_INSTRUCTIONS = `${TTS_INSTRUCTIONS_START}
 ## Voice Output (TTS)
 
-When responding, wrap your natural language prose in \`<tts>...\</tts>\` tags for text-to-speech.
+When responding, wrap your natural language prose in \`«tts»...«/tts»\` markers for text-to-speech.
 
 Rules:
 - ONLY wrap conversational prose meant to be spoken aloud
 - Do NOT wrap: code, file paths, commands, tool output, URLs, lists, errors
-- Keep tags on same line as text (no line breaks inside)
+- Keep markers on same line as text (no line breaks inside)
 
-Examples (using brackets to avoid parsing):
-✓ [tts]I'll help you fix that bug.[/tts]
-✓ [tts]The tests are passing.[/tts] Here's what changed:
-✗ [tts]src/Header.tsx[/tts]  (file path - don't wrap)
-✗ [tts]npm install[/tts]  (command - don't wrap)
+Examples:
+✓ «tts»I'll help you fix that bug.«/tts»
+✓ «tts»The tests are passing.«/tts» Here's what changed:
+✗ «tts»src/Header.tsx«/tts»  (file path - don't wrap)
+✗ «tts»npm install«/tts»  (command - don't wrap)
 ${TTS_INSTRUCTIONS_END}`
 
 // Install TTS instructions by appending to CLAUDE.md
@@ -920,10 +920,18 @@ function installTTSInstructions(projectPath: string): boolean {
     let content = ''
     if (existsSync(claudeMdPath)) {
       content = require('fs').readFileSync(claudeMdPath, 'utf8')
-      // Check if TTS instructions already exist
+      // Check if TTS instructions already exist - replace them to ensure latest format
       if (content.includes(TTS_INSTRUCTIONS_START)) {
-        console.log('TTS instructions already present in:', claudeMdPath)
-        return true
+        // Remove old instructions and replace with new ones
+        const startIdx = content.indexOf(TTS_INSTRUCTIONS_START)
+        const endIdx = content.indexOf(TTS_INSTRUCTIONS_END)
+        if (startIdx !== -1 && endIdx !== -1) {
+          content = content.substring(0, startIdx) + content.substring(endIdx + TTS_INSTRUCTIONS_END.length)
+          content += TTS_INSTRUCTIONS
+          writeFileSync(claudeMdPath, content)
+          console.log('Updated TTS instructions in:', claudeMdPath)
+          return true
+        }
       }
     }
 

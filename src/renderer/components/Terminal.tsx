@@ -353,7 +353,8 @@ export function Terminal({ ptyId, isActive, theme, onFocus, projectPath, backend
       // Pre-populate spoken content set from buffered data to prevent re-speaking old content
       for (const chunk of buffer) {
         const cleanChunk = stripAnsi(chunk)
-        const tagRegex = /«tts»([\s\S]*?)«\/tts»/g
+        // Support both «tts»...«/tts» and <tts>...</tts> formats
+        const tagRegex = /(?:«tts»|<tts>)([\s\S]*?)(?:«\/tts»|<\/tts>)/g
         let match
         while ((match = tagRegex.exec(cleanChunk)) !== null) {
           const content = match[1].trim()
@@ -500,7 +501,7 @@ export function Terminal({ ptyId, isActive, theme, onFocus, projectPath, backend
         }
       }
 
-      // Always strip «tts» markers and summary markers from display
+      // Only strip «tts» guillemet markers from display (keep <tts> angle brackets visible to show when Claude uses wrong format)
       let displayData = data.replace(/«\/?tts»/g, '').replace(/===SUMMARY_(START|END)===/g, '')
 
       // TTS: Buffer chunks and extract complete tags (tags may span multiple chunks)
@@ -508,8 +509,8 @@ export function Terminal({ ptyId, isActive, theme, onFocus, projectPath, backend
 
       ttsBufferRef.current += cleanChunk
 
-      // Extract all complete «tts»...«/tts» markers from buffer
-      const tagRegex = /«tts»([\s\S]*?)«\/tts»/g
+      // Extract all complete TTS markers from buffer (support both «tts»...«/tts» and <tts>...</tts>)
+      const tagRegex = /(?:«tts»|<tts>)([\s\S]*?)(?:«\/tts»|<\/tts>)/g
       let match
       let lastIndex = 0
 
@@ -537,8 +538,8 @@ export function Terminal({ ptyId, isActive, theme, onFocus, projectPath, backend
         ttsBufferRef.current = ttsBufferRef.current.substring(lastIndex)
       }
 
-      // If buffer has no opening marker, clear it to prevent unbounded growth
-      if (!ttsBufferRef.current.includes('«tts')) {
+      // If buffer has no opening marker (either format), clear it to prevent unbounded growth
+      if (!ttsBufferRef.current.includes('«tts') && !ttsBufferRef.current.includes('<tts')) {
         ttsBufferRef.current = ''
       }
 
