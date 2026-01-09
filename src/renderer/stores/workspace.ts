@@ -1,5 +1,12 @@
 import { create } from 'zustand'
 
+export interface ProjectCategory {
+  id: string
+  name: string
+  collapsed: boolean
+  order: number
+}
+
 export interface Project {
   path: string
   name: string
@@ -13,6 +20,8 @@ export interface Project {
   ttsVoice?: string           // Per-project TTS voice (overrides global)
   ttsEngine?: 'piper' | 'xtts'  // Per-project TTS engine
   backend?: 'default' | 'claude' | 'gemini' | 'codex' | 'opencode'
+  categoryId?: string         // Category this project belongs to
+  order?: number              // Order within category or uncategorized list
 }
 
 export interface OpenTab {
@@ -28,6 +37,7 @@ interface WorkspaceState {
   projects: Project[]
   openTabs: OpenTab[]
   activeTabId: string | null
+  categories: ProjectCategory[]
 
   setProjects: (projects: Project[]) => void
   addProject: (project: Project) => void
@@ -39,12 +49,25 @@ interface WorkspaceState {
   updateTab: (id: string, updates: Partial<OpenTab>) => void
   setActiveTab: (id: string) => void
   clearTabs: () => void
+
+  // Category management
+  setCategories: (categories: ProjectCategory[]) => void
+  addCategory: (name: string) => string  // Returns new category ID
+  updateCategory: (id: string, updates: Partial<ProjectCategory>) => void
+  removeCategory: (id: string) => void
+  reorderCategories: (ids: string[]) => void
+  moveProjectToCategory: (projectPath: string, categoryId: string | null) => void
+  reorderProjects: (categoryId: string | null, projectPaths: string[]) => void
 }
+
+// Generate unique ID for categories
+const generateCategoryId = () => `cat-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
 
 export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
   projects: [],
   openTabs: [],
   activeTabId: null,
+  categories: [],
 
   setProjects: (projects) => set({ projects }),
 
@@ -105,5 +128,77 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   setActiveTab: (id) => set({ activeTabId: id }),
 
-  clearTabs: () => set({ openTabs: [], activeTabId: null })
+  clearTabs: () => set({ openTabs: [], activeTabId: null }),
+
+  // Category management
+  setCategories: (categories) => set({ categories }),
+
+  addCategory: (name) => {
+    const { categories } = get()
+    const id = generateCategoryId()
+    const maxOrder = categories.reduce((max, c) => Math.max(max, c.order), -1)
+    set({
+      categories: [...categories, { id, name, collapsed: false, order: maxOrder + 1 }]
+    })
+    return id
+  },
+
+  updateCategory: (id, updates) => {
+    const { categories } = get()
+    set({
+      categories: categories.map((c) =>
+        c.id === id ? { ...c, ...updates } : c
+      )
+    })
+  },
+
+  removeCategory: (id) => {
+    const { categories, projects } = get()
+    // Remove category and unassign projects
+    set({
+      categories: categories.filter((c) => c.id !== id),
+      projects: projects.map((p) =>
+        p.categoryId === id ? { ...p, categoryId: undefined } : p
+      )
+    })
+  },
+
+  reorderCategories: (ids) => {
+    const { categories } = get()
+    set({
+      categories: categories.map((c) => ({
+        ...c,
+        order: ids.indexOf(c.id)
+      }))
+    })
+  },
+
+  moveProjectToCategory: (projectPath, categoryId) => {
+    const { projects } = get()
+    // Find max order in target category (or uncategorized if categoryId is null)
+    const categoryProjects = projects.filter((p) =>
+      categoryId === null ? !p.categoryId : p.categoryId === categoryId
+    )
+    const maxOrder = categoryProjects.reduce((max, p) => Math.max(max, p.order ?? -1), -1)
+    set({
+      projects: projects.map((p) =>
+        p.path === projectPath
+          ? { ...p, categoryId: categoryId ?? undefined, order: maxOrder + 1 }
+          : p
+      )
+    })
+  },
+
+  reorderProjects: (categoryId, projectPaths) => {
+    const { projects } = get()
+    set({
+      projects: projects.map((p) => {
+        const index = projectPaths.indexOf(p.path)
+        if (index >= 0) {
+          return { ...p, order: index }
+        }
+        return p
+      })
+    })
+  }
 }))

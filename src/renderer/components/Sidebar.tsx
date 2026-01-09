@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react'
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
 import ReactDOM from 'react-dom'
-import { Project } from '../stores/workspace'
+import { Project, ProjectCategory, useWorkspaceStore } from '../stores/workspace'
 import { ProjectIcon } from './ProjectIcon'
 import { BeadsPanel } from './BeadsPanel'
 import { VoiceControls } from './VoiceControls'
@@ -73,6 +73,23 @@ interface OpenTab {
   sessionId?: string
 }
 
+// Helper to calculate gradient from project colors
+function getCategoryGradient(categoryProjects: Project[]): string {
+  const colors = categoryProjects
+    .map(p => p.color)
+    .filter(Boolean) as string[]
+
+  if (colors.length === 0) return 'transparent'
+  if (colors.length === 1) return `${colors[0]}15`
+
+  // Create linear gradient with 15% opacity colors
+  const stops = colors.map((c, i) =>
+    `${c}15 ${(i / (colors.length - 1)) * 100}%`
+  ).join(', ')
+
+  return `linear-gradient(135deg, ${stops})`
+}
+
 interface SidebarProps {
   projects: Project[]
   openTabs: OpenTab[]
@@ -95,6 +112,15 @@ interface SidebarProps {
 export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onAddProject, onRemoveProject, onOpenSession, onSwitchToTab, onOpenSettings, onOpenMakeProject, onUpdateProject, onCloseProjectTabs, width, collapsed, onWidthChange, onCollapsedChange }: SidebarProps) {
   const { volume, setVolume, speed, setSpeed, skipOnNew, setSkipOnNew, voiceOutputEnabled } = useVoice()
 
+  // Category state from workspace store
+  const categories = useWorkspaceStore(state => state.categories)
+  const addCategory = useWorkspaceStore(state => state.addCategory)
+  const updateCategory = useWorkspaceStore(state => state.updateCategory)
+  const removeCategory = useWorkspaceStore(state => state.removeCategory)
+  const reorderCategories = useWorkspaceStore(state => state.reorderCategories)
+  const moveProjectToCategory = useWorkspaceStore(state => state.moveProjectToCategory)
+  const reorderProjects = useWorkspaceStore(state => state.reorderProjects)
+
   // Ref to always have latest activeTabId for voice transcription callback
   const activeTabIdRef = useRef(activeTabId)
   useEffect(() => {
@@ -105,6 +131,7 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
   const [beadsExpanded, setBeadsExpanded] = useState(true)
   const [isResizing, setIsResizing] = useState(false)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; project: Project } | null>(null)
+  const [categoryContextMenu, setCategoryContextMenu] = useState<{ x: number; y: number; category: ProjectCategory } | null>(null)
   const [projectSettingsModal, setProjectSettingsModal] = useState<{
     project: Project
     apiPort: string
@@ -123,9 +150,14 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
   const [globalPermissions, setGlobalPermissions] = useState<{ tools: string[]; mode: string }>({ tools: [], mode: 'default' })
   const [apiStatus, setApiStatus] = useState<Record<string, { running: boolean; port?: number }>>({})
   const [editingProject, setEditingProject] = useState<{ path: string; name: string } | null>(null)
+  const [editingCategory, setEditingCategory] = useState<{ id: string; name: string } | null>(null)
+  const [draggedProject, setDraggedProject] = useState<string | null>(null)
+  const [draggedCategory, setDraggedCategory] = useState<string | null>(null)
+  const [dropTarget, setDropTarget] = useState<{ type: 'category' | 'project' | 'uncategorized'; id: string | null; position?: 'before' | 'after' } | null>(null)
   const [isDebugMode, setIsDebugMode] = useState(false)
   const sidebarRef = useRef<HTMLDivElement>(null)
   const editInputRef = useRef<HTMLInputElement>(null)
+  const categoryEditInputRef = useRef<HTMLInputElement>(null)
 
   // Resize handler
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
@@ -216,14 +248,207 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
     }
   }
 
-  // Close context menu on click outside
+  // Category handlers
+  const handleAddCategory = () => {
+    const newId = addCategory('New Category')
+    // Start editing the new category name
+    setEditingCategory({ id: newId, name: 'New Category' })
+    setTimeout(() => categoryEditInputRef.current?.select(), 0)
+  }
+
+  const handleStartCategoryRename = (e: React.MouseEvent, category: ProjectCategory) => {
+    e.stopPropagation()
+    setEditingCategory({ id: category.id, name: category.name })
+    setTimeout(() => categoryEditInputRef.current?.select(), 0)
+  }
+
+  const handleCategoryRenameSubmit = () => {
+    if (editingCategory && editingCategory.name.trim()) {
+      updateCategory(editingCategory.id, { name: editingCategory.name.trim() })
+    }
+    setEditingCategory(null)
+  }
+
+  const handleCategoryRenameKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      handleCategoryRenameSubmit()
+    } else if (e.key === 'Escape') {
+      setEditingCategory(null)
+    }
+  }
+
+  const handleCategoryContextMenu = (e: React.MouseEvent, category: ProjectCategory) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setCategoryContextMenu({ x: e.clientX, y: e.clientY, category })
+  }
+
+  const handleDeleteCategory = (categoryId: string) => {
+    removeCategory(categoryId)
+    setCategoryContextMenu(null)
+  }
+
+  const toggleCategoryCollapse = (categoryId: string) => {
+    const category = categories.find(c => c.id === categoryId)
+    if (category) {
+      updateCategory(categoryId, { collapsed: !category.collapsed })
+    }
+  }
+
+  // Drag and drop handlers for projects
+  const handleProjectDragStart = (e: React.DragEvent, projectPath: string) => {
+    setDraggedProject(projectPath)
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', projectPath)
+  }
+
+  const handleProjectDragEnd = () => {
+    setDraggedProject(null)
+    setDropTarget(null)
+  }
+
+  const handleCategoryDragOver = (e: React.DragEvent, categoryId: string | null) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (draggedProject) {
+      setDropTarget({ type: categoryId ? 'category' : 'uncategorized', id: categoryId })
+    }
+  }
+
+  const handleCategoryDrop = (e: React.DragEvent, categoryId: string | null) => {
+    e.preventDefault()
+    if (draggedProject) {
+      moveProjectToCategory(draggedProject, categoryId)
+    }
+    setDraggedProject(null)
+    setDropTarget(null)
+  }
+
+  const handleProjectDragOver = (e: React.DragEvent, projectPath: string, position: 'before' | 'after') => {
+    e.preventDefault()
+    e.stopPropagation()
+    e.dataTransfer.dropEffect = 'move'
+    if (draggedProject && draggedProject !== projectPath) {
+      setDropTarget({ type: 'project', id: projectPath, position })
+    }
+  }
+
+  const handleProjectDrop = (e: React.DragEvent, targetPath: string, targetCategoryId: string | undefined) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (draggedProject && draggedProject !== targetPath) {
+      // Move project to same category as target and reorder
+      const draggedProjectData = projects.find(p => p.path === draggedProject)
+      const targetProject = projects.find(p => p.path === targetPath)
+
+      if (draggedProjectData && targetProject) {
+        // First move to same category
+        moveProjectToCategory(draggedProject, targetCategoryId ?? null)
+
+        // Then reorder within category
+        const categoryProjects = projects
+          .filter(p => (targetCategoryId ? p.categoryId === targetCategoryId : !p.categoryId))
+          .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+          .map(p => p.path)
+
+        // Remove dragged project from current position
+        const newOrder = categoryProjects.filter(p => p !== draggedProject)
+
+        // Insert at new position
+        const targetIndex = newOrder.indexOf(targetPath)
+        const insertIndex = dropTarget?.position === 'after' ? targetIndex + 1 : targetIndex
+        newOrder.splice(insertIndex, 0, draggedProject)
+
+        reorderProjects(targetCategoryId ?? null, newOrder)
+      }
+    }
+    setDraggedProject(null)
+    setDropTarget(null)
+  }
+
+  // Category drag and drop handlers
+  const handleCategoryDragStart = (e: React.DragEvent, categoryId: string) => {
+    setDraggedCategory(categoryId)
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', categoryId)
+  }
+
+  const handleCategoryDragEnd = () => {
+    setDraggedCategory(null)
+    setDropTarget(null)
+  }
+
+  const handleCategoryHeaderDragOver = (e: React.DragEvent, targetCategoryId: string, position: 'before' | 'after') => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    if (draggedCategory && draggedCategory !== targetCategoryId) {
+      setDropTarget({ type: 'category', id: targetCategoryId, position })
+    }
+  }
+
+  const handleCategoryHeaderDrop = (e: React.DragEvent, targetCategoryId: string) => {
+    e.preventDefault()
+    if (draggedCategory && draggedCategory !== targetCategoryId) {
+      const orderedCategories = [...categories].sort((a, b) => a.order - b.order)
+      const categoryIds = orderedCategories.map(c => c.id)
+
+      // Remove dragged category from current position
+      const newOrder = categoryIds.filter(id => id !== draggedCategory)
+
+      // Insert at new position
+      const targetIndex = newOrder.indexOf(targetCategoryId)
+      const insertIndex = dropTarget?.position === 'after' ? targetIndex + 1 : targetIndex
+      newOrder.splice(insertIndex, 0, draggedCategory)
+
+      reorderCategories(newOrder)
+    }
+    setDraggedCategory(null)
+    setDropTarget(null)
+  }
+
+  // Group projects by category
+  const sortedCategories = useMemo(() =>
+    [...categories].sort((a, b) => a.order - b.order),
+    [categories]
+  )
+
+  const projectsByCategory = useMemo(() => {
+    const grouped: Record<string, Project[]> = {}
+
+    // Initialize groups for each category
+    sortedCategories.forEach(cat => {
+      grouped[cat.id] = []
+    })
+    grouped['uncategorized'] = []
+
+    // Sort projects into groups
+    projects.forEach(project => {
+      const key = project.categoryId || 'uncategorized'
+      if (!grouped[key]) {
+        grouped[key] = []
+      }
+      grouped[key].push(project)
+    })
+
+    // Sort projects within each group by order
+    Object.keys(grouped).forEach(key => {
+      grouped[key].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
+    })
+
+    return grouped
+  }, [projects, sortedCategories])
+
+  // Close context menus on click outside
   useEffect(() => {
-    const handleClick = () => setContextMenu(null)
-    if (contextMenu) {
+    const handleClick = () => {
+      setContextMenu(null)
+      setCategoryContextMenu(null)
+    }
+    if (contextMenu || categoryContextMenu) {
       document.addEventListener('click', handleClick)
       return () => document.removeEventListener('click', handleClick)
     }
-  }, [contextMenu])
+  }, [contextMenu, categoryContextMenu])
 
   // Check API status when context menu opens
   useEffect(() => {
@@ -469,97 +694,330 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
       >
         ◀
       </button>
-      <div className="sidebar-header">Projects</div>
+      <div className="sidebar-header">
+        Projects
+        <button
+          className="add-category-btn"
+          onClick={handleAddCategory}
+          title="Add category"
+        >
+          +
+        </button>
+      </div>
       <div className="projects-list">
-        {projects.map((project) => (
-          <div key={project.path}>
+        {/* Render categories */}
+        {sortedCategories.map((category) => {
+          const categoryProjects = projectsByCategory[category.id] || []
+          const gradient = getCategoryGradient(categoryProjects)
+
+          return (
             <div
-              className={`project-item ${expandedProject === project.path ? 'expanded' : ''} ${openTabs.some(t => t.projectPath === project.path) ? 'has-open-tab' : ''} ${project.executable ? 'has-executable' : ''} ${project.color ? 'has-color' : ''} ${focusedProjectPath === project.path ? 'focused' : ''}`}
-              style={project.color ? { backgroundColor: `${project.color}20` } : undefined}
-              onClick={() => openMostRecentSession(project.path)}
-              onContextMenu={(e) => handleContextMenu(e, project)}
+              key={category.id}
+              className={`category-container ${dropTarget?.type === 'category' && dropTarget.id === category.id && !dropTarget.position ? 'drop-target' : ''}`}
             >
-              <span
-                className="expand-arrow"
-                onClick={(e) => toggleProject(e, project.path)}
-                title="Show all sessions"
+              {/* Drop indicator before category */}
+              {dropTarget?.type === 'category' && dropTarget.id === category.id && dropTarget.position === 'before' && (
+                <div className="drop-indicator" />
+              )}
+
+              <div
+                className={`category-header ${category.collapsed ? 'collapsed' : ''} ${draggedCategory === category.id ? 'dragging' : ''}`}
+                style={{ background: gradient }}
+                draggable={!editingCategory}
+                onDragStart={(e) => handleCategoryDragStart(e, category.id)}
+                onDragEnd={handleCategoryDragEnd}
+                onDragOver={(e) => {
+                  const rect = e.currentTarget.getBoundingClientRect()
+                  const midY = rect.top + rect.height / 2
+                  const position = e.clientY < midY ? 'before' : 'after'
+                  if (draggedCategory) {
+                    handleCategoryHeaderDragOver(e, category.id, position)
+                  } else if (draggedProject) {
+                    handleCategoryDragOver(e, category.id)
+                  }
+                }}
+                onDrop={(e) => {
+                  if (draggedCategory) {
+                    handleCategoryHeaderDrop(e, category.id)
+                  } else if (draggedProject) {
+                    handleCategoryDrop(e, category.id)
+                  }
+                }}
+                onClick={() => toggleCategoryCollapse(category.id)}
+                onContextMenu={(e) => handleCategoryContextMenu(e, category)}
               >
-                {expandedProject === project.path ? '▼' : '▶'}
-              </span>
-              <ProjectIcon projectName={project.name} size={28} />
-              <div style={{ flex: 1, minWidth: 0 }}>
-                {editingProject?.path === project.path ? (
+                <span className="expand-arrow">
+                  {category.collapsed ? '▶' : '▼'}
+                </span>
+                {editingCategory?.id === category.id ? (
                   <input
-                    ref={editInputRef}
+                    ref={categoryEditInputRef}
                     type="text"
-                    className="project-name-input"
-                    value={editingProject.name}
-                    onChange={(e) => setEditingProject({ ...editingProject, name: e.target.value })}
-                    onKeyDown={handleRenameKeyDown}
-                    onBlur={handleRenameSubmit}
+                    className="category-name-input"
+                    value={editingCategory.name}
+                    onChange={(e) => setEditingCategory({ ...editingCategory, name: e.target.value })}
+                    onKeyDown={handleCategoryRenameKeyDown}
+                    onBlur={handleCategoryRenameSubmit}
                     onClick={(e) => e.stopPropagation()}
                   />
                 ) : (
-                  <div
-                    className="project-name"
-                    title={project.name}
-                    onDoubleClick={(e) => handleStartRename(e, project)}
+                  <span
+                    className="category-name"
+                    onDoubleClick={(e) => handleStartCategoryRename(e, category)}
                   >
-                    {project.name}
-                  </div>
+                    {category.name}
+                  </span>
                 )}
-                <div className="project-path" title={project.path}>{project.path}</div>
+                <span className="category-count">{categoryProjects.length}</span>
               </div>
-              {project.executable && (
-                <button
-                  className="start-btn"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    handleRunExecutable(project)
-                  }}
-                  title={`Run: ${project.executable}`}
-                >
-                  ▶
-                </button>
+
+              {/* Drop indicator after category header */}
+              {dropTarget?.type === 'category' && dropTarget.id === category.id && dropTarget.position === 'after' && (
+                <div className="drop-indicator" />
               )}
-              {openTabs.some(t => t.projectPath === project.path) && (
-                <button
-                  className="close-project-btn"
-                  onClick={(e) => {
-                    e.stopPropagation()
-                    onCloseProjectTabs(project.path)
-                  }}
-                  title="Close all terminals for this project"
-                >
-                  ×
-                </button>
+
+              {/* Category projects */}
+              {!category.collapsed && (
+                <div className="category-projects">
+                  {categoryProjects.map((project) => (
+                    <div key={project.path}>
+                      {/* Drop indicator before project */}
+                      {dropTarget?.type === 'project' && dropTarget.id === project.path && dropTarget.position === 'before' && (
+                        <div className="drop-indicator" />
+                      )}
+
+                      <div
+                        className={`project-item ${expandedProject === project.path ? 'expanded' : ''} ${openTabs.some(t => t.projectPath === project.path) ? 'has-open-tab' : ''} ${project.executable ? 'has-executable' : ''} ${project.color ? 'has-color' : ''} ${focusedProjectPath === project.path ? 'focused' : ''} ${draggedProject === project.path ? 'dragging' : ''}`}
+                        style={project.color ? { backgroundColor: `${project.color}20` } : undefined}
+                        draggable={!editingProject}
+                        onDragStart={(e) => handleProjectDragStart(e, project.path)}
+                        onDragEnd={handleProjectDragEnd}
+                        onDragOver={(e) => {
+                          const rect = e.currentTarget.getBoundingClientRect()
+                          const midY = rect.top + rect.height / 2
+                          const position = e.clientY < midY ? 'before' : 'after'
+                          handleProjectDragOver(e, project.path, position)
+                        }}
+                        onDrop={(e) => handleProjectDrop(e, project.path, project.categoryId)}
+                        onClick={() => openMostRecentSession(project.path)}
+                        onContextMenu={(e) => handleContextMenu(e, project)}
+                      >
+                        <span
+                          className="expand-arrow"
+                          onClick={(e) => toggleProject(e, project.path)}
+                          title="Show all sessions"
+                        >
+                          {expandedProject === project.path ? '▼' : '▶'}
+                        </span>
+                        <ProjectIcon projectName={project.name} size={28} />
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          {editingProject?.path === project.path ? (
+                            <input
+                              ref={editInputRef}
+                              type="text"
+                              className="project-name-input"
+                              value={editingProject.name}
+                              onChange={(e) => setEditingProject({ ...editingProject, name: e.target.value })}
+                              onKeyDown={handleRenameKeyDown}
+                              onBlur={handleRenameSubmit}
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          ) : (
+                            <div
+                              className="project-name"
+                              title={project.name}
+                              onDoubleClick={(e) => handleStartRename(e, project)}
+                            >
+                              {project.name}
+                            </div>
+                          )}
+                          <div className="project-path" title={project.path}>{project.path}</div>
+                        </div>
+                        {project.executable && (
+                          <button
+                            className="start-btn"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              handleRunExecutable(project)
+                            }}
+                            title={`Run: ${project.executable}`}
+                          >
+                            ▶
+                          </button>
+                        )}
+                        {openTabs.some(t => t.projectPath === project.path) && (
+                          <button
+                            className="close-project-btn"
+                            onClick={(e) => {
+                              e.stopPropagation()
+                              onCloseProjectTabs(project.path)
+                            }}
+                            title="Close all terminals for this project"
+                          >
+                            ×
+                          </button>
+                        )}
+                      </div>
+
+                      {/* Drop indicator after project */}
+                      {dropTarget?.type === 'project' && dropTarget.id === project.path && dropTarget.position === 'after' && (
+                        <div className="drop-indicator" />
+                      )}
+
+                      {expandedProject === project.path && (
+                        <div className="sessions-list">
+                          <div
+                            className="session-item new-session"
+                            onClick={() => onOpenSession(project.path)}
+                          >
+                            <span>+</span>
+                            <span>New Session</span>
+                          </div>
+                          {(sessions[project.path] || []).map((session, index) => (
+                            <div
+                              key={session.sessionId}
+                              className={`session-item ${index === 0 ? 'most-recent' : ''}`}
+                              onClick={() => onOpenSession(project.path, session.sessionId, session.slug)}
+                              title={`Session ID: ${session.sessionId}`}
+                            >
+                              <span className="session-icon">{index === 0 ? '●' : '◦'}</span>
+                              <span className="session-name" title={session.slug}>{session.slug}</span>
+                              <span className="session-time">{formatDate(session.lastModified)}</span>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
               )}
             </div>
-            {expandedProject === project.path && (
-              <div className="sessions-list">
-                <div
-                  className="session-item new-session"
-                  onClick={() => onOpenSession(project.path)}
-                >
-                  <span>+</span>
-                  <span>New Session</span>
-                </div>
-                {(sessions[project.path] || []).map((session, index) => (
-                  <div
-                    key={session.sessionId}
-                    className={`session-item ${index === 0 ? 'most-recent' : ''}`}
-                    onClick={() => onOpenSession(project.path, session.sessionId, session.slug)}
-                    title={`Session ID: ${session.sessionId}`}
-                  >
-                    <span className="session-icon">{index === 0 ? '●' : '◦'}</span>
-                    <span className="session-name" title={session.slug}>{session.slug}</span>
-                    <span className="session-time">{formatDate(session.lastModified)}</span>
-                  </div>
-                ))}
-              </div>
+          )
+        })}
+
+        {/* Uncategorized projects section */}
+        {(projectsByCategory['uncategorized']?.length > 0 || sortedCategories.length > 0) && (
+          <div
+            className={`uncategorized-section ${dropTarget?.type === 'uncategorized' ? 'drop-target' : ''}`}
+            onDragOver={(e) => handleCategoryDragOver(e, null)}
+            onDrop={(e) => handleCategoryDrop(e, null)}
+          >
+            {sortedCategories.length > 0 && projectsByCategory['uncategorized']?.length > 0 && (
+              <div className="uncategorized-header">Uncategorized</div>
             )}
+            {projectsByCategory['uncategorized']?.map((project) => (
+              <div key={project.path}>
+                {/* Drop indicator before project */}
+                {dropTarget?.type === 'project' && dropTarget.id === project.path && dropTarget.position === 'before' && (
+                  <div className="drop-indicator" />
+                )}
+
+                <div
+                  className={`project-item ${expandedProject === project.path ? 'expanded' : ''} ${openTabs.some(t => t.projectPath === project.path) ? 'has-open-tab' : ''} ${project.executable ? 'has-executable' : ''} ${project.color ? 'has-color' : ''} ${focusedProjectPath === project.path ? 'focused' : ''} ${draggedProject === project.path ? 'dragging' : ''}`}
+                  style={project.color ? { backgroundColor: `${project.color}20` } : undefined}
+                  draggable={!editingProject}
+                  onDragStart={(e) => handleProjectDragStart(e, project.path)}
+                  onDragEnd={handleProjectDragEnd}
+                  onDragOver={(e) => {
+                    const rect = e.currentTarget.getBoundingClientRect()
+                    const midY = rect.top + rect.height / 2
+                    const position = e.clientY < midY ? 'before' : 'after'
+                    handleProjectDragOver(e, project.path, position)
+                  }}
+                  onDrop={(e) => handleProjectDrop(e, project.path, undefined)}
+                  onClick={() => openMostRecentSession(project.path)}
+                  onContextMenu={(e) => handleContextMenu(e, project)}
+                >
+                  <span
+                    className="expand-arrow"
+                    onClick={(e) => toggleProject(e, project.path)}
+                    title="Show all sessions"
+                  >
+                    {expandedProject === project.path ? '▼' : '▶'}
+                  </span>
+                  <ProjectIcon projectName={project.name} size={28} />
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    {editingProject?.path === project.path ? (
+                      <input
+                        ref={editInputRef}
+                        type="text"
+                        className="project-name-input"
+                        value={editingProject.name}
+                        onChange={(e) => setEditingProject({ ...editingProject, name: e.target.value })}
+                        onKeyDown={handleRenameKeyDown}
+                        onBlur={handleRenameSubmit}
+                        onClick={(e) => e.stopPropagation()}
+                      />
+                    ) : (
+                      <div
+                        className="project-name"
+                        title={project.name}
+                        onDoubleClick={(e) => handleStartRename(e, project)}
+                      >
+                        {project.name}
+                      </div>
+                    )}
+                    <div className="project-path" title={project.path}>{project.path}</div>
+                  </div>
+                  {project.executable && (
+                    <button
+                      className="start-btn"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleRunExecutable(project)
+                      }}
+                      title={`Run: ${project.executable}`}
+                    >
+                      ▶
+                    </button>
+                  )}
+                  {openTabs.some(t => t.projectPath === project.path) && (
+                    <button
+                      className="close-project-btn"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onCloseProjectTabs(project.path)
+                      }}
+                      title="Close all terminals for this project"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+
+                {/* Drop indicator after project */}
+                {dropTarget?.type === 'project' && dropTarget.id === project.path && dropTarget.position === 'after' && (
+                  <div className="drop-indicator" />
+                )}
+
+                {expandedProject === project.path && (
+                  <div className="sessions-list">
+                    <div
+                      className="session-item new-session"
+                      onClick={() => onOpenSession(project.path)}
+                    >
+                      <span>+</span>
+                      <span>New Session</span>
+                    </div>
+                    {(sessions[project.path] || []).map((session, index) => (
+                      <div
+                        key={session.sessionId}
+                        className={`session-item ${index === 0 ? 'most-recent' : ''}`}
+                        onClick={() => onOpenSession(project.path, session.sessionId, session.slug)}
+                        title={`Session ID: ${session.sessionId}`}
+                      >
+                        <span className="session-icon">{index === 0 ? '●' : '◦'}</span>
+                        <span className="session-name" title={session.slug}>{session.slug}</span>
+                        <span className="session-time">{formatDate(session.lastModified)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
           </div>
-        ))}
+        )}
+
         {projects.length === 0 && (
           <div className="empty-projects">
             No projects yet.<br />Click + to add one.
@@ -736,6 +1194,42 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
                 {!color.value && '✕'}
               </button>
             ))}
+          </div>
+          <div className="context-menu-divider" />
+          <div className="context-menu-label">Move to Category</div>
+          <div className="category-move-options">
+            <button
+              className={!contextMenu.project.categoryId ? 'selected' : ''}
+              onClick={() => {
+                moveProjectToCategory(contextMenu.project.path, null)
+                setContextMenu(null)
+              }}
+            >
+              <span className="icon">—</span> None
+            </button>
+            {sortedCategories.map((cat) => (
+              <button
+                key={cat.id}
+                className={contextMenu.project.categoryId === cat.id ? 'selected' : ''}
+                onClick={() => {
+                  moveProjectToCategory(contextMenu.project.path, cat.id)
+                  setContextMenu(null)
+                }}
+              >
+                <span className="icon">📁</span> {cat.name}
+              </button>
+            ))}
+            <button
+              onClick={() => {
+                const newId = addCategory('New Category')
+                moveProjectToCategory(contextMenu.project.path, newId)
+                setContextMenu(null)
+                setEditingCategory({ id: newId, name: 'New Category' })
+                setTimeout(() => categoryEditInputRef.current?.select(), 0)
+              }}
+            >
+              <span className="icon">+</span> New Category
+            </button>
           </div>
           <div className="context-menu-divider" />
           <button
@@ -1037,6 +1531,30 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
               </button>
             </div>
           </div>
+        </div>,
+        document.body
+      )}
+
+      {/* Category Context Menu */}
+      {categoryContextMenu && ReactDOM.createPortal(
+        <div
+          className="context-menu"
+          style={{ left: categoryContextMenu.x, top: categoryContextMenu.y }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <button onClick={() => {
+            handleStartCategoryRename({ stopPropagation: () => {} } as React.MouseEvent, categoryContextMenu.category)
+            setCategoryContextMenu(null)
+          }}>
+            <span className="icon">✏️</span> Rename
+          </button>
+          <div className="context-menu-divider" />
+          <button
+            className="danger"
+            onClick={() => handleDeleteCategory(categoryContextMenu.category.id)}
+          >
+            <span className="icon">🗑</span> Delete Category
+          </button>
         </div>,
         document.body
       )}

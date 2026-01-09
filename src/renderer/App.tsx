@@ -76,7 +76,9 @@ function App() {
     projects,
     openTabs,
     activeTabId,
+    categories,
     setProjects,
+    setCategories,
     addProject,
     removeProject,
     updateProject,
@@ -180,6 +182,10 @@ function App() {
             await window.electronAPI.ttsInstallInstructions?.(project.path)
           }
         }
+        // Load categories
+        if (workspace.categories) {
+          setCategories(workspace.categories)
+        }
 
         // Restore previously open tabs (only if not already open)
         // Track old ID -> new ID mapping for layout restoration
@@ -280,7 +286,7 @@ function App() {
     })
 
     return () => unsubscribe()
-  }, [addTab, clearTabs, projects, setProjects, settings?.backend, updateTab, hadProjectsRef])
+  }, [addTab, clearTabs, projects, setProjects, setCategories, settings?.backend, updateTab, hadProjectsRef])
 
   // Save workspace when it changes
   useEffect(() => {
@@ -310,10 +316,11 @@ function App() {
         })),
         activeTabId,
         viewMode,
-        tileLayout
+        tileLayout,
+        categories
       })
     }
-  }, [projects, openTabs, activeTabId, loading, viewMode, tileLayout])
+  }, [projects, openTabs, activeTabId, loading, viewMode, tileLayout, categories])
 
   // Poll for session IDs - update tabs without sessions and detect when sessions change (e.g., after /clear)
   useEffect(() => {

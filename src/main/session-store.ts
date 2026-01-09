@@ -2,6 +2,13 @@ import { app } from 'electron'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
 
+export interface ProjectCategory {
+  id: string
+  name: string
+  collapsed: boolean
+  order: number
+}
+
 export interface Project {
   path: string
   name: string
@@ -15,6 +22,8 @@ export interface Project {
   ttsVoice?: string           // Per-project TTS voice (overrides global)
   ttsEngine?: 'piper' | 'xtts'  // Per-project TTS engine
   backend?: 'default' | 'claude' | 'gemini' | 'codex' | 'opencode' // Per-project backend (overrides global)
+  categoryId?: string         // Category this project belongs to
+  order?: number              // Order within category or uncategorized list
 }
 
 export interface OpenTab {
@@ -38,6 +47,7 @@ export interface Workspace {
   activeTabId: string | null
   viewMode?: 'tabs' | 'tiled'
   tileLayout?: TileLayout[]
+  categories?: ProjectCategory[]
 }
 
 export interface WindowBounds {
