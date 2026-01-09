@@ -649,12 +649,16 @@ html, body, #root {
 
 .category-count {
   font-size: 10px;
-  color: var(--text-muted);
-  background: var(--bg-tertiary);
+  color: inherit;
+  background: rgba(0, 0, 0, 0.25);
   padding: 1px 6px;
   border-radius: 10px;
   min-width: 18px;
   text-align: center;
+}
+
+.category-header.text-dark .category-count {
+  background: rgba(255, 255, 255, 0.3);
 }
 
 .category-projects {
