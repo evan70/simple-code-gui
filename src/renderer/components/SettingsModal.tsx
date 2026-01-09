@@ -101,6 +101,10 @@ export function SettingsModal({ isOpen, onClose, onThemeChange }: SettingsModalP
   const [previewLoading, setPreviewLoading] = useState<string | null>(null)
   const previewAudioRef = useRef<HTMLAudioElement | null>(null)
 
+  // TTS uninstall state
+  const [removingTTS, setRemovingTTS] = useState(false)
+  const [ttsRemovalResult, setTtsRemovalResult] = useState<{ success: number; failed: number } | null>(null)
+
   // Load installed voices (Piper and XTTS)
   const refreshInstalledVoices = async () => {
     const [piperVoices, xttsVoices] = await Promise.all([
@@ -357,6 +361,44 @@ export function SettingsModal({ isOpen, onClose, onThemeChange }: SettingsModalP
       setPreviewLoading(null)
       console.error('Failed to preview voice:', e)
     }
+  }
+
+  // Remove TTS instructions from all projects (uninstall feature)
+  const handleRemoveTTSFromAllProjects = async () => {
+    if (!confirm('This will remove TTS voice output instructions from CLAUDE.md files in ALL your projects. This is useful if you want to stop using Claude Terminal.\n\nContinue?')) {
+      return
+    }
+
+    setRemovingTTS(true)
+    setTtsRemovalResult(null)
+
+    try {
+      const workspace = await window.electronAPI.getWorkspace()
+      const projects = workspace?.projects || []
+
+      let success = 0
+      let failed = 0
+
+      for (const project of projects) {
+        try {
+          const result = await window.electronAPI.ttsRemoveInstructions?.(project.path)
+          if (result?.success) {
+            success++
+          } else {
+            failed++
+          }
+        } catch {
+          failed++
+        }
+      }
+
+      setTtsRemovalResult({ success, failed })
+    } catch (e) {
+      console.error('Failed to remove TTS instructions:', e)
+      setTtsRemovalResult({ success: 0, failed: 1 })
+    }
+
+    setRemovingTTS(false)
   }
 
   if (!isOpen) return null
@@ -691,6 +733,28 @@ export function SettingsModal({ isOpen, onClose, onThemeChange }: SettingsModalP
                   </div>
                 </div>
               </div>
+            )}
+          </div>
+
+          <div className="form-group">
+            <label>Uninstall TTS</label>
+            <p className="form-hint">
+              Remove TTS voice output instructions from CLAUDE.md files in all projects.
+              Use this if you want to stop using Claude Terminal altogether.
+            </p>
+            <button
+              className="btn-danger"
+              onClick={handleRemoveTTSFromAllProjects}
+              disabled={removingTTS}
+              style={{ marginTop: '8px' }}
+            >
+              {removingTTS ? 'Removing...' : 'Remove TTS from All Projects'}
+            </button>
+            {ttsRemovalResult && (
+              <p className="form-hint" style={{ marginTop: '8px', color: ttsRemovalResult.failed > 0 ? 'var(--warning)' : 'var(--success)' }}>
+                Removed from {ttsRemovalResult.success} project{ttsRemovalResult.success !== 1 ? 's' : ''}.
+                {ttsRemovalResult.failed > 0 && ` Failed: ${ttsRemovalResult.failed}.`}
+              </p>
             )}
           </div>
         </div>
