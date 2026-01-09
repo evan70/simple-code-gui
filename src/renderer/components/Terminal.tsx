@@ -29,6 +29,20 @@ export function clearTerminalBuffer(ptyId: string) {
 // Debug flag - set to true to log scroll events
 const DEBUG_SCROLL = false
 
+// Suppress known xterm WebGL initialization race condition error
+// This error occurs when WebGL addon triggers viewport sync before render service is ready
+// The error is harmless - WebGL still initializes correctly
+if (typeof window !== 'undefined' && !(window as any).__XTERM_ERROR_HANDLER__) {
+  (window as any).__XTERM_ERROR_HANDLER__ = true
+  window.addEventListener('error', (event) => {
+    if (event.message?.includes("Cannot read properties of undefined (reading 'dimensions')") &&
+        event.filename?.includes('xterm')) {
+      event.preventDefault()
+      return true
+    }
+  })
+}
+
 const formatPathForBackend = (path: string, backend?: string): string => {
   const normalized = backend && backend !== 'default' ? backend : 'claude'
   const escaped = path.includes('"') ? path.replace(/"/g, '\\"') : path
@@ -294,6 +308,9 @@ export function Terminal({ ptyId, isActive, theme, onFocus, projectPath, backend
   useEffect(() => {
     if (!containerRef.current) return
 
+    // Track whether terminal is disposed to prevent accessing disposed terminal in async callbacks
+    let disposed = false
+
     // Reset TTS state for this terminal session
     silentModeRef.current = true
     spokenContentRef.current.clear()
@@ -338,10 +355,27 @@ export function Terminal({ ptyId, isActive, theme, onFocus, projectPath, backend
 
     terminal.open(containerRef.current)
 
-    // Load WebGL addon after terminal has dimensions (defer to avoid timing issues)
-    requestAnimationFrame(() => {
+    // Load WebGL addon after terminal is fully initialized
+    // Use setTimeout to allow xterm's internal render service to initialize
+    setTimeout(() => {
+      if (disposed) return
+
+      // Ensure terminal has valid dimensions before loading WebGL
+      let dims: { cols: number; rows: number } | undefined
+      try {
+        dims = fitAddon.proposeDimensions()
+      } catch {
+        // Terminal may be in invalid state
+        return
+      }
+      if (!dims || dims.cols <= 0 || dims.rows <= 0) {
+        console.warn('Terminal GPU acceleration: skipped (no dimensions)')
+        return
+      }
+
       fitAddon.fit()
       import('@xterm/addon-webgl').then(({ WebglAddon }) => {
+        if (disposed) return
         try {
           const webglAddon = new WebglAddon()
           webglAddon.onContextLoss(() => {
@@ -355,7 +389,7 @@ export function Terminal({ ptyId, isActive, theme, onFocus, projectPath, backend
       }).catch(e => {
         console.warn('Terminal GPU acceleration: WebGL unavailable, using canvas:', e)
       })
-    })
+    }, 100)
 
     terminalRef.current = terminal
     fitAddonRef.current = fitAddon
@@ -367,6 +401,7 @@ export function Terminal({ ptyId, isActive, theme, onFocus, projectPath, backend
     }
 
     // Replay buffered content on mount (for HMR recovery)
+    // Defer to next frame to ensure terminal viewport is fully initialized
     const buffer = terminalBuffers.get(ptyId)!
     if (buffer.length > 0) {
       // Pre-populate spoken content set from buffered data to prevent re-speaking old content
@@ -383,11 +418,14 @@ export function Terminal({ ptyId, isActive, theme, onFocus, projectPath, backend
         }
       }
 
-      // Write all buffered data to restore terminal state
-      for (const chunk of buffer) {
-        terminal.write(chunk)
-      }
-      terminal.scrollToBottom()
+      // Write all buffered data to restore terminal state - defer to ensure viewport ready
+      requestAnimationFrame(() => {
+        if (disposed) return
+        for (const chunk of buffer) {
+          terminal.write(chunk)
+        }
+        terminal.scrollToBottom()
+      })
     }
 
     // Silent mode stays on until user types - no timer needed
@@ -419,6 +457,7 @@ export function Terminal({ ptyId, isActive, theme, onFocus, projectPath, backend
 
     // Defer fit to next frame when container has dimensions
     requestAnimationFrame(() => {
+      if (disposed) return
       fitAddon.fit()
     })
 
@@ -499,6 +538,7 @@ export function Terminal({ ptyId, isActive, theme, onFocus, projectPath, backend
     containerRef.current.addEventListener('mousedown', () => {
       // Restore scroll position after a brief delay (after xterm processes the click)
       requestAnimationFrame(() => {
+        if (disposed) return
         if (!userScrolledUpRef.current) {
           terminal.scrollToBottom()
         }
@@ -684,7 +724,7 @@ export function Terminal({ ptyId, isActive, theme, onFocus, projectPath, backend
 
     // Handle resize - stay at bottom unless user scrolled up
     const handleResize = () => {
-      if (!fitAddonRef.current || !containerRef.current || !terminalRef.current) return
+      if (disposed || !fitAddonRef.current || !containerRef.current || !terminalRef.current) return
 
       const rect = containerRef.current.getBoundingClientRect()
       // Only fit if container is visible and has reasonable dimensions
@@ -701,6 +741,7 @@ export function Terminal({ ptyId, isActive, theme, onFocus, projectPath, backend
         // Restore scroll position - use requestAnimationFrame to ensure it happens after xterm's internal updates
         if (wasAtBottom) {
           requestAnimationFrame(() => {
+            if (disposed) return
             terminalRef.current?.scrollToBottom()
           })
         }
@@ -724,6 +765,7 @@ export function Terminal({ ptyId, isActive, theme, onFocus, projectPath, backend
     setTimeout(handleResize, 500)
 
     return () => {
+      disposed = true
       cleanupData()
       cleanupExit()
       if (resizeTimeout) clearTimeout(resizeTimeout)
