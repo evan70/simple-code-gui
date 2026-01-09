@@ -9,7 +9,7 @@
   "license": "SEE LICENSE IN LICENSE",
   "repository": {
     "type": "git",
-    "url": "https://github.com/DonutsDelivery/simple-claude-gui"
+    "url": "https://github.com/DonutsDelivery/simple-code-gui"
   },
   "main": "./dist/main/index.js",
   "scripts": {
