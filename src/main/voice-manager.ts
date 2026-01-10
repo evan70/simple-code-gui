@@ -610,11 +610,12 @@ class VoiceManager {
     let voicePaths = this.getAnyVoicePath(this.currentTTSVoice)
     if (!voicePaths) {
       // Current voice not found - try to fall back to any available voice
-      const availableVoices = this.getInstalledPiperVoices()
+      // Use getInstalledVoices() to include downloaded and custom voices
+      const availableVoices = this.getInstalledVoices()
       for (const voice of availableVoices) {
-        voicePaths = this.getAnyVoicePath(voice)
+        voicePaths = this.getAnyVoicePath(voice.key)
         if (voicePaths) {
-          this.currentTTSVoice = voice // Update to the found voice
+          this.currentTTSVoice = voice.key // Update to the found voice
           break
         }
       }
