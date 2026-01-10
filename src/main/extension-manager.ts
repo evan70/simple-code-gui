@@ -44,6 +44,122 @@ export interface ExtensionConfig {
 // Default registry URL (can be overridden)
 const DEFAULT_REGISTRY_URL = 'https://raw.githubusercontent.com/anthropics/claude-code-extensions/main/registry.json'
 
+// Built-in default extensions (always available, no network needed)
+const BUILTIN_REGISTRY: Registry = {
+  version: 1,
+  skills: [
+    {
+      id: 'get-shit-done',
+      name: 'Get Shit Done (GSD)',
+      description: 'Autonomous task execution framework with planning, codebase mapping, and guided execution',
+      type: 'skill',
+      repo: 'https://github.com/glittercowboy/get-shit-done',
+      commands: ['/gsd:plan', '/gsd:execute', '/gsd:status', '/gsd:map-codebase'],
+      tags: ['workflow', 'autonomous', 'planning', 'tasks']
+    },
+    {
+      id: 'claudemcp-memory',
+      name: 'Claude Memory',
+      description: 'Persistent memory and knowledge base for Claude conversations',
+      type: 'skill',
+      repo: 'https://github.com/anthropics/claude-memory',
+      commands: ['/memory:save', '/memory:recall', '/memory:list'],
+      tags: ['memory', 'persistence', 'knowledge']
+    },
+    {
+      id: 'code-review',
+      name: 'Code Review',
+      description: 'Automated code review with best practices checking',
+      type: 'skill',
+      repo: 'https://github.com/anthropics/claude-code-review',
+      commands: ['/review', '/review:pr', '/review:file'],
+      tags: ['review', 'quality', 'pr']
+    }
+  ],
+  mcps: [
+    {
+      id: 'filesystem',
+      name: 'Filesystem MCP',
+      description: 'Read and write file access for Claude with configurable roots',
+      type: 'mcp',
+      npm: '@modelcontextprotocol/server-filesystem',
+      tags: ['files', 'io', 'core'],
+      configSchema: {
+        roots: { type: 'array', items: { type: 'string' }, description: 'Allowed directories' }
+      }
+    },
+    {
+      id: 'puppeteer',
+      name: 'Puppeteer MCP',
+      description: 'Browser automation and web scraping capabilities',
+      type: 'mcp',
+      npm: '@modelcontextprotocol/server-puppeteer',
+      tags: ['browser', 'automation', 'web'],
+      configSchema: {}
+    },
+    {
+      id: 'github',
+      name: 'GitHub MCP',
+      description: 'GitHub API integration for repos, issues, and PRs',
+      type: 'mcp',
+      npm: '@modelcontextprotocol/server-github',
+      tags: ['github', 'git', 'api'],
+      configSchema: {
+        token: { type: 'string', description: 'GitHub personal access token' }
+      }
+    },
+    {
+      id: 'sqlite',
+      name: 'SQLite MCP',
+      description: 'SQLite database access and querying',
+      type: 'mcp',
+      npm: '@modelcontextprotocol/server-sqlite',
+      tags: ['database', 'sql', 'storage'],
+      configSchema: {
+        dbPath: { type: 'string', description: 'Path to SQLite database file' }
+      }
+    },
+    {
+      id: 'brave-search',
+      name: 'Brave Search MCP',
+      description: 'Web search using Brave Search API',
+      type: 'mcp',
+      npm: '@modelcontextprotocol/server-brave-search',
+      tags: ['search', 'web', 'api'],
+      configSchema: {
+        apiKey: { type: 'string', description: 'Brave Search API key' }
+      }
+    },
+    {
+      id: 'fetch',
+      name: 'Fetch MCP',
+      description: 'HTTP fetch capabilities for web requests',
+      type: 'mcp',
+      npm: '@modelcontextprotocol/server-fetch',
+      tags: ['http', 'web', 'api'],
+      configSchema: {}
+    }
+  ],
+  agents: [
+    {
+      id: 'pr-review-agent',
+      name: 'PR Review Agent',
+      description: 'Autonomous agent that reviews pull requests and provides feedback',
+      type: 'agent',
+      repo: 'https://github.com/anthropics/claude-pr-agent',
+      tags: ['review', 'pr', 'autonomous']
+    },
+    {
+      id: 'test-generator',
+      name: 'Test Generator Agent',
+      description: 'Generates unit tests for your codebase automatically',
+      type: 'agent',
+      repo: 'https://github.com/anthropics/claude-test-generator',
+      tags: ['testing', 'automation', 'quality']
+    }
+  ]
+}
+
 // Paths
 const getExtensionsDir = () => join(homedir(), '.claude', 'extensions')
 const getInstalledJsonPath = () => join(getExtensionsDir(), 'installed.json')
@@ -102,6 +218,34 @@ export class ExtensionManager {
   // ==================== REGISTRY ====================
 
   async fetchRegistry(forceRefresh = false): Promise<Registry> {
+    // Helper to merge registries (remote extensions supplement builtin)
+    const mergeRegistries = (remote: Registry | null): Registry => {
+      if (!remote) {
+        return BUILTIN_REGISTRY
+      }
+
+      // Merge: builtin first, then remote (avoiding duplicates by id)
+      const builtinSkillIds = new Set(BUILTIN_REGISTRY.skills.map(s => s.id))
+      const builtinMcpIds = new Set(BUILTIN_REGISTRY.mcps.map(m => m.id))
+      const builtinAgentIds = new Set(BUILTIN_REGISTRY.agents.map(a => a.id))
+
+      return {
+        version: Math.max(BUILTIN_REGISTRY.version, remote.version),
+        skills: [
+          ...BUILTIN_REGISTRY.skills,
+          ...remote.skills.filter(s => !builtinSkillIds.has(s.id))
+        ],
+        mcps: [
+          ...BUILTIN_REGISTRY.mcps,
+          ...remote.mcps.filter(m => !builtinMcpIds.has(m.id))
+        ],
+        agents: [
+          ...BUILTIN_REGISTRY.agents,
+          ...remote.agents.filter(a => !builtinAgentIds.has(a.id))
+        ]
+      }
+    }
+
     // Check cache
     if (!forceRefresh && this.registryCache) {
       const age = Date.now() - this.registryCache.fetchedAt
@@ -124,13 +268,14 @@ export class ExtensionManager {
       }
     }
 
-    // Fetch from network
+    // Fetch from network and merge with builtin
     try {
       const response = await fetch(DEFAULT_REGISTRY_URL)
       if (!response.ok) {
         throw new Error(`Failed to fetch registry: ${response.status}`)
       }
-      const data = await response.json() as Registry
+      const remoteData = await response.json() as Registry
+      const data = mergeRegistries(remoteData)
 
       // Cache it
       this.registryCache = { data, fetchedAt: Date.now() }
@@ -138,9 +283,14 @@ export class ExtensionManager {
 
       return data
     } catch (error) {
-      // Return empty registry on error
-      console.error('Failed to fetch extension registry:', error)
-      return { version: 0, skills: [], mcps: [], agents: [] }
+      // Network failed - return builtin registry
+      console.error('Failed to fetch remote registry, using built-in:', error)
+      const data = mergeRegistries(null)
+
+      // Cache the builtin registry so we don't spam network requests
+      this.registryCache = { data, fetchedAt: Date.now() }
+
+      return data
     }
   }
 
