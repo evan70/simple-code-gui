@@ -80,6 +80,10 @@ export function SettingsModal({ isOpen, onClose, onThemeChange }: SettingsModalP
   // Voice context for active whisper model
   const { whisperModel: activeWhisperModel, setWhisperModel: setActiveWhisperModel } = useVoice()
 
+  // Extensions state
+  const [installedExtensions, setInstalledExtensions] = useState<Array<{ id: string; name: string; type: string }>>([])
+  const [showExtensionBrowser, setShowExtensionBrowser] = useState(false)
+
   // Voice settings
   const [whisperStatus, setWhisperStatus] = useState<{ installed: boolean; models: string[]; currentModel: string | null }>({ installed: false, models: [], currentModel: null })
   const [ttsStatus, setTtsStatus] = useState<{ installed: boolean; voices: string[]; currentVoice: string | null }>({ installed: false, voices: [], currentVoice: null })
@@ -152,6 +156,11 @@ export function SettingsModal({ isOpen, onClose, onThemeChange }: SettingsModalP
       window.electronAPI.voiceCheckWhisper?.().then(setWhisperStatus).catch(() => {})
       window.electronAPI.voiceCheckTTS?.().then(setTtsStatus).catch(() => {})
       refreshInstalledVoices()
+
+      // Load installed extensions
+      window.electronAPI.extensionsGetInstalled?.().then(exts => {
+        setInstalledExtensions(exts || [])
+      }).catch(() => {})
     } else {
       // Stop preview when modal closes
       if (previewAudioRef.current) {
@@ -549,6 +558,33 @@ export function SettingsModal({ isOpen, onClose, onThemeChange }: SettingsModalP
                   <span className="mode-desc">{mode.desc}</span>
                 </label>
               ))}
+            </div>
+          </div>
+
+          <div className="form-group">
+            <label>Extensions</label>
+            <p className="form-hint">
+              Skills, MCPs, and Agents extend Claude Code's capabilities.
+            </p>
+            <div className="extensions-summary">
+              {installedExtensions.length > 0 ? (
+                <div className="extension-counts">
+                  <span className="ext-count">
+                    <strong>{installedExtensions.filter(e => e.type === 'skill').length}</strong> Skills
+                  </span>
+                  <span className="ext-count">
+                    <strong>{installedExtensions.filter(e => e.type === 'mcp').length}</strong> MCPs
+                  </span>
+                  <span className="ext-count">
+                    <strong>{installedExtensions.filter(e => e.type === 'agent').length}</strong> Agents
+                  </span>
+                </div>
+              ) : (
+                <p className="no-extensions">No extensions installed yet.</p>
+              )}
+              <p className="form-hint" style={{ marginTop: '8px', fontSize: '12px' }}>
+                Right-click a project in the sidebar and select "Extensions..." to manage extensions for that project.
+              </p>
             </div>
           </div>
 

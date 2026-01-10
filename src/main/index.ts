@@ -38,6 +38,7 @@ import {
 import { initUpdater } from './updater'
 import { voiceManager, WHISPER_MODELS, PIPER_VOICES, WhisperModelName, PiperVoiceName } from './voice-manager'
 import { xttsManager, XTTS_LANGUAGES, XTTS_SAMPLE_VOICES } from './xtts-manager'
+import { extensionManager, Extension } from './extension-manager'
 
 // Debug mode - enables manual refresh button and disables hot-reload
 const isDebugMode = process.argv.includes('--debug') || process.env.DEBUG_MODE === '1'
@@ -340,8 +341,9 @@ ipcMain.handle('pty:spawn', (_, { cwd, sessionId, model, backend }: { cwd: strin
     // Use provided model (from API) or fall back to pending prompt's model
     const pending = pendingApiPrompts.get(cwd)
     const effectiveModel = model || pending?.model
-    const autoAcceptTools = project?.autoAcceptTools
-    const permissionMode = project?.permissionMode
+    // Permission settings: project-level overrides global settings
+    const autoAcceptTools = project?.autoAcceptTools ?? globalSettings.autoAcceptTools
+    const permissionMode = project?.permissionMode ?? globalSettings.permissionMode
 
     console.debug('PTY Spawn Trace:', {
       cwd,
@@ -1698,4 +1700,77 @@ ipcMain.handle('commands:save', async (_, { name, content, projectPath }: { name
   } catch (error) {
     return { success: false, error: String(error) }
   }
+})
+
+// ==================== EXTENSIONS ====================
+
+// Registry
+ipcMain.handle('extensions:fetchRegistry', async (_, forceRefresh?: boolean) => {
+  return extensionManager.fetchRegistry(forceRefresh)
+})
+
+ipcMain.handle('extensions:fetchFromUrl', async (_, url: string) => {
+  return extensionManager.fetchFromUrl(url)
+})
+
+// Installation
+ipcMain.handle('extensions:installSkill', async (_, { extension, scope, projectPath }: { extension: Extension; scope?: 'global' | 'project'; projectPath?: string }) => {
+  return extensionManager.installSkill(extension, scope, projectPath)
+})
+
+ipcMain.handle('extensions:installMcp', async (_, { extension, config }: { extension: Extension; config?: Record<string, any> }) => {
+  return extensionManager.installMcp(extension, config)
+})
+
+ipcMain.handle('extensions:remove', async (_, extensionId: string) => {
+  return extensionManager.remove(extensionId)
+})
+
+ipcMain.handle('extensions:update', async (_, extensionId: string) => {
+  return extensionManager.update(extensionId)
+})
+
+// Query
+ipcMain.handle('extensions:getInstalled', async () => {
+  return extensionManager.getInstalled()
+})
+
+ipcMain.handle('extensions:getForProject', async (_, projectPath: string) => {
+  return extensionManager.getInstalledForProject(projectPath)
+})
+
+ipcMain.handle('extensions:getCommands', async (_, projectPath: string) => {
+  return extensionManager.getCommandsForProject(projectPath)
+})
+
+// Config
+ipcMain.handle('extensions:getConfig', async (_, extensionId: string) => {
+  return extensionManager.getConfig(extensionId)
+})
+
+ipcMain.handle('extensions:setConfig', async (_, { extensionId, config }: { extensionId: string; config: Record<string, any> }) => {
+  return extensionManager.setConfig(extensionId, config)
+})
+
+ipcMain.handle('extensions:enableForProject', async (_, { extensionId, projectPath }: { extensionId: string; projectPath: string }) => {
+  return extensionManager.enableForProject(extensionId, projectPath)
+})
+
+ipcMain.handle('extensions:disableForProject', async (_, { extensionId, projectPath }: { extensionId: string; projectPath: string }) => {
+  return extensionManager.disableForProject(extensionId, projectPath)
+})
+
+// Custom URLs
+ipcMain.handle('extensions:addCustomUrl', async (_, url: string) => {
+  extensionManager.addCustomUrl(url)
+  return { success: true }
+})
+
+ipcMain.handle('extensions:removeCustomUrl', async (_, url: string) => {
+  extensionManager.removeCustomUrl(url)
+  return { success: true }
+})
+
+ipcMain.handle('extensions:getCustomUrls', async () => {
+  return extensionManager.getCustomUrls()
 })

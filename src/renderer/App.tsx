@@ -6,6 +6,7 @@ import { Terminal, clearTerminalBuffer } from './components/Terminal'
 import { TiledTerminalView, TileLayout } from './components/TiledTerminalView'
 import { SettingsModal } from './components/SettingsModal'
 import { MakeProjectModal } from './components/MakeProjectModal'
+import { QuickActionsMenu } from './components/QuickActionsMenu'
 import { useWorkspaceStore, OpenTab } from './stores/workspace'
 import { Theme, getThemeById, applyTheme, themes } from './themes'
 import { useVoice } from './contexts/VoiceContext'
@@ -419,7 +420,7 @@ function App() {
     }
   }, [addProject])
 
-  const handleOpenSession = useCallback(async (projectPath: string, sessionId?: string, slug?: string) => {
+  const handleOpenSession = useCallback(async (projectPath: string, sessionId?: string, slug?: string, initialPrompt?: string) => {
     // Check if this session is already open
     if (sessionId) {
       const existingTab = openTabs.find(tab => tab.sessionId === sessionId)
@@ -453,6 +454,17 @@ function App() {
         ptyId,
         backend: effectiveBackend
       })
+
+      // If an initial prompt was provided, send it after a short delay to let the terminal initialize
+      if (initialPrompt) {
+        setTimeout(() => {
+          window.electronAPI.writePty(ptyId, initialPrompt)
+          // Send enter to submit
+          setTimeout(() => {
+            window.electronAPI.writePty(ptyId, '\r')
+          }, 100)
+        }, 1500) // Wait for backend to fully start
+      }
     } catch (e: any) {
       console.error('Failed to spawn PTY:', e)
       // Show error to user
@@ -641,6 +653,10 @@ function App() {
                   onCloseTab={handleCloseTab}
                 />
               )}
+              <QuickActionsMenu
+                projectPath={openTabs.find(t => t.id === activeTabId)?.projectPath || null}
+                ptyId={activeTabId}
+              />
               <button
                 className="view-toggle-btn"
                 onClick={() => setViewMode(viewMode === 'tabs' ? 'tiled' : 'tabs')}

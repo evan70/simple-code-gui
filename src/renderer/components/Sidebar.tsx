@@ -4,6 +4,7 @@ import { Project, ProjectCategory, useWorkspaceStore } from '../stores/workspace
 import { ProjectIcon } from './ProjectIcon'
 import { BeadsPanel } from './BeadsPanel'
 import { VoiceControls } from './VoiceControls'
+import { ExtensionBrowser } from './ExtensionBrowser'
 import { useVoice } from '../contexts/VoiceContext'
 
 // Tool patterns for quick selection
@@ -113,7 +114,7 @@ interface SidebarProps {
   lastFocusedTabId: string | null
   onAddProject: () => void
   onRemoveProject: (path: string) => void
-  onOpenSession: (projectPath: string, sessionId?: string, slug?: string) => void
+  onOpenSession: (projectPath: string, sessionId?: string, slug?: string, initialPrompt?: string) => void
   onSwitchToTab: (tabId: string) => void
   onOpenSettings: () => void
   onOpenMakeProject: () => void
@@ -171,6 +172,7 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
   const [draggedCategory, setDraggedCategory] = useState<string | null>(null)
   const [dropTarget, setDropTarget] = useState<{ type: 'category' | 'project' | 'uncategorized'; id: string | null; position?: 'before' | 'after' } | null>(null)
   const [isDebugMode, setIsDebugMode] = useState(false)
+  const [extensionBrowserModal, setExtensionBrowserModal] = useState<{ project: Project } | null>(null)
   const sidebarRef = useRef<HTMLDivElement>(null)
   const editInputRef = useRef<HTMLInputElement>(null)
   const categoryEditInputRef = useRef<HTMLInputElement>(null)
@@ -209,7 +211,9 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
 
   // Get project path from last focused tab (or active tab as fallback)
   const focusedTabId = lastFocusedTabId || activeTabId
-  const focusedProjectPath = openTabs.find(t => t.id === focusedTabId)?.projectPath || null
+  const focusedTab = openTabs.find(t => t.id === focusedTabId)
+  const focusedProjectPath = focusedTab?.projectPath || null
+  const focusedTabPtyId = focusedTab?.ptyId || null
   // Use expanded project if viewing sessions, otherwise use focused/active tab's project
   const beadsProjectPath = expandedProject || focusedProjectPath
 
@@ -1060,6 +1064,20 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
         projectPath={beadsProjectPath}
         isExpanded={beadsExpanded}
         onToggle={() => setBeadsExpanded(!beadsExpanded)}
+        onStartTaskInNewTab={(prompt) => {
+          if (beadsProjectPath) {
+            onOpenSession(beadsProjectPath, undefined, undefined, prompt)
+          }
+        }}
+        onSendToCurrentTab={(prompt) => {
+          if (focusedTabPtyId) {
+            window.electronAPI.writePty(focusedTabPtyId, prompt)
+            setTimeout(() => {
+              window.electronAPI.writePty(focusedTabPtyId, '\r')
+            }, 100)
+          }
+        }}
+        currentTabPtyId={focusedTabPtyId}
       />
       {voiceOutputEnabled && (
         <div className="voice-options">
@@ -1192,6 +1210,12 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
             {(contextMenu.project.apiPort || contextMenu.project.autoAcceptTools?.length || contextMenu.project.permissionMode) && (
               <span className="menu-hint">configured</span>
             )}
+          </button>
+          <button onClick={() => {
+            setExtensionBrowserModal({ project: contextMenu.project })
+            setContextMenu(null)
+          }}>
+            <span className="icon">🧩</span> Extensions...
           </button>
           <div className="context-menu-divider" />
           <div className="context-menu-label">Color</div>
@@ -1559,6 +1583,16 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
             </div>
           </div>
         </div>,
+        document.body
+      )}
+
+      {/* Extension Browser Modal */}
+      {extensionBrowserModal && ReactDOM.createPortal(
+        <ExtensionBrowser
+          projectPath={extensionBrowserModal.project.path}
+          projectName={extensionBrowserModal.project.name}
+          onClose={() => setExtensionBrowserModal(null)}
+        />,
         document.body
       )}
 

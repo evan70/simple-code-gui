@@ -3244,6 +3244,50 @@ html, body, #root {
   transform: scale(1.2);
 }
 
+/* Start task dropdown */
+.beads-start-dropdown {
+  position: fixed;
+  z-index: 10000;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  min-width: 160px;
+  padding: 4px;
+}
+
+.beads-start-option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 10px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: background-color var(--transition-fast);
+}
+
+.beads-start-option:hover:not(:disabled) {
+  background: var(--bg-tertiary);
+}
+
+.beads-start-option:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.beads-start-icon {
+  color: var(--accent);
+  font-weight: bold;
+  width: 14px;
+  text-align: center;
+}
+
 .beads-task.status-in_progress {
   border-left: 2px solid var(--accent);
 }
@@ -4962,4 +5006,478 @@ html, body, #root {
   opacity: 0.5;
   pointer-events: none;
   user-select: none;
+}
+
+/* ==================== Extension Browser ==================== */
+
+.extension-browser-modal {
+  width: 600px;
+  max-width: 90vw;
+  max-height: 80vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.extension-browser-modal .modal-content {
+  flex: 1;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-md);
+}
+
+.extension-error {
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #ef4444;
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-md);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+}
+
+.extension-error button {
+  background: none;
+  border: none;
+  color: inherit;
+  cursor: pointer;
+  padding: 0 4px;
+  font-size: 16px;
+}
+
+.add-url-section {
+  display: flex;
+  gap: var(--space-sm);
+  margin-bottom: var(--space-md);
+}
+
+.add-url-section input {
+  flex: 1;
+  padding: var(--space-sm) var(--space-md);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.add-url-section input:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.add-url-section button {
+  padding: var(--space-sm) var(--space-md);
+  background: var(--accent-primary);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 13px;
+  white-space: nowrap;
+}
+
+.add-url-section button:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.add-url-section button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.extension-tabs {
+  display: flex;
+  gap: var(--space-xs);
+  margin-bottom: var(--space-md);
+  border-bottom: 1px solid var(--border-subtle);
+  padding-bottom: var(--space-sm);
+}
+
+.extension-tabs button {
+  padding: var(--space-sm) var(--space-md);
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  border-radius: var(--radius-md);
+  transition: all 0.15s ease;
+}
+
+.extension-tabs button:hover:not(.refresh-btn) {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+
+.extension-tabs button.active {
+  color: var(--accent-primary);
+  background: rgba(59, 130, 246, 0.1);
+}
+
+.extension-tabs .refresh-btn {
+  margin-left: auto;
+  padding: var(--space-xs) var(--space-sm);
+  font-size: 16px;
+}
+
+.extension-loading {
+  text-align: center;
+  padding: var(--space-xl);
+  color: var(--text-muted);
+}
+
+.extension-empty {
+  text-align: center;
+  padding: var(--space-xl);
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.extension-list {
+  flex: 1;
+  overflow-y: auto;
+}
+
+.extension-section-header {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin: var(--space-md) 0 var(--space-sm);
+  letter-spacing: 0.5px;
+}
+
+.extension-section-header:first-child {
+  margin-top: 0;
+}
+
+.extension-item {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--space-md);
+  margin-bottom: var(--space-sm);
+}
+
+.extension-header {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-md);
+}
+
+.extension-header input[type="checkbox"] {
+  margin-top: 4px;
+  cursor: pointer;
+}
+
+.extension-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.extension-name {
+  font-weight: 500;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.extension-description {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: var(--space-xs);
+}
+
+.extension-commands {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: var(--space-xs);
+}
+
+.command-tag {
+  font-size: 11px;
+  padding: 2px 6px;
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--accent-primary);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+}
+
+.command-tag.more {
+  background: var(--bg-hover);
+  color: var(--text-muted);
+}
+
+.extension-repo {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.extension-actions {
+  display: flex;
+  gap: var(--space-xs);
+  align-items: center;
+}
+
+.extension-actions .icon-btn {
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-md);
+  background: var(--bg-hover);
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  transition: all 0.15s ease;
+}
+
+.extension-actions .icon-btn:hover {
+  background: var(--bg-active);
+}
+
+.extension-actions .icon-btn.danger:hover {
+  background: rgba(239, 68, 68, 0.2);
+}
+
+.extension-actions .install-btn {
+  padding: var(--space-xs) var(--space-md);
+  background: var(--accent-primary);
+  color: white;
+  border: none;
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.extension-actions .install-btn:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+
+.extension-actions .install-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Config overlay for MCP settings */
+.config-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1001;
+}
+
+.config-modal {
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--space-lg);
+  width: 400px;
+  max-width: 90vw;
+}
+
+.config-modal h3 {
+  margin: 0 0 var(--space-sm);
+  color: var(--text-primary);
+}
+
+.config-modal .hint {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: var(--space-md);
+}
+
+.config-content textarea {
+  width: 100%;
+  padding: var(--space-sm);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  resize: vertical;
+}
+
+.config-content textarea:focus {
+  outline: none;
+  border-color: var(--accent-primary);
+}
+
+.config-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-sm);
+  margin-top: var(--space-md);
+}
+
+.config-actions button {
+  padding: var(--space-sm) var(--space-md);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.config-actions button:first-child {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+}
+
+.config-actions button.primary {
+  background: var(--accent-primary);
+  border: none;
+  color: white;
+}
+
+.config-actions button.primary:hover {
+  background: var(--accent-hover);
+}
+
+/* ==================== Quick Actions Menu ==================== */
+
+.quick-actions-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.15s ease;
+  margin-left: auto;
+  margin-right: var(--space-sm);
+}
+
+.quick-actions-btn:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-default);
+}
+
+.quick-actions-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.quick-actions-btn .icon {
+  font-size: 14px;
+}
+
+.quick-actions-btn .caret {
+  font-size: 10px;
+  opacity: 0.6;
+}
+
+.quick-actions-menu {
+  position: fixed;
+  min-width: 220px;
+  max-width: 300px;
+  background: var(--bg-primary);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
+  z-index: 1000;
+  overflow: hidden;
+}
+
+.quick-actions-loading,
+.quick-actions-empty {
+  padding: var(--space-md);
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.quick-actions-empty small {
+  color: var(--text-muted);
+  opacity: 0.7;
+}
+
+.quick-actions-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  padding: var(--space-sm) var(--space-md);
+  background: none;
+  border: none;
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+  transition: background 0.1s ease;
+}
+
+.quick-actions-item:hover {
+  background: var(--bg-hover);
+}
+
+.quick-actions-item .cmd {
+  font-family: var(--font-mono);
+  color: var(--accent-primary);
+}
+
+.quick-actions-item .ext {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-left: var(--space-sm);
+}
+
+.quick-actions-item.manage {
+  gap: var(--space-sm);
+  justify-content: flex-start;
+  color: var(--text-secondary);
+}
+
+.quick-actions-item.manage .icon {
+  font-size: 14px;
+}
+
+.quick-actions-divider {
+  height: 1px;
+  background: var(--border-subtle);
+  margin: var(--space-xs) 0;
+}
+
+/* ==================== Extensions Summary (Settings) ==================== */
+
+.extensions-summary {
+  padding: var(--space-md);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+}
+
+.extension-counts {
+  display: flex;
+  gap: var(--space-lg);
+}
+
+.ext-count {
+  color: var(--text-secondary);
+  font-size: 13px;
+}
+
+.ext-count strong {
+  color: var(--text-primary);
+  font-size: 16px;
+  margin-right: 4px;
+}
+
+.no-extensions {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin: 0;
 }

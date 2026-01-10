@@ -178,6 +178,87 @@ export interface ElectronAPI {
   // Auto Work mode marker (for hooks)
   autoworkSetActive: (projectPath: string) => Promise<{ success: boolean }>
   autoworkClearActive: (projectPath: string) => Promise<{ success: boolean }>
+
+  // Extensions
+  extensionsFetchRegistry: (forceRefresh?: boolean) => Promise<{
+    version: number
+    skills: Array<{
+      id: string
+      name: string
+      description: string
+      type: 'skill' | 'mcp' | 'agent'
+      repo?: string
+      npm?: string
+      commands?: string[]
+      tags?: string[]
+    }>
+    mcps: Array<{
+      id: string
+      name: string
+      description: string
+      type: 'skill' | 'mcp' | 'agent'
+      npm?: string
+      configSchema?: Record<string, any>
+      tags?: string[]
+    }>
+    agents: Array<{
+      id: string
+      name: string
+      description: string
+      type: 'skill' | 'mcp' | 'agent'
+      repo?: string
+      tags?: string[]
+    }>
+  }>
+  extensionsFetchFromUrl: (url: string) => Promise<{
+    id: string
+    name: string
+    description: string
+    type: 'skill' | 'mcp' | 'agent'
+    repo?: string
+    npm?: string
+    commands?: string[]
+    tags?: string[]
+  } | null>
+  extensionsInstallSkill: (extension: any, scope?: 'global' | 'project', projectPath?: string) => Promise<{ success: boolean; error?: string }>
+  extensionsInstallMcp: (extension: any, config?: Record<string, any>) => Promise<{ success: boolean; error?: string }>
+  extensionsRemove: (extensionId: string) => Promise<{ success: boolean; error?: string }>
+  extensionsUpdate: (extensionId: string) => Promise<{ success: boolean; error?: string }>
+  extensionsGetInstalled: () => Promise<Array<{
+    id: string
+    name: string
+    description: string
+    type: 'skill' | 'mcp' | 'agent'
+    repo?: string
+    npm?: string
+    commands?: string[]
+    tags?: string[]
+    installedAt: number
+    enabled: boolean
+    scope: 'global' | 'project'
+    projectPath?: string
+    config?: Record<string, any>
+  }>>
+  extensionsGetForProject: (projectPath: string) => Promise<Array<{
+    id: string
+    name: string
+    description: string
+    type: 'skill' | 'mcp' | 'agent'
+    commands?: string[]
+    enabled: boolean
+  }>>
+  extensionsGetCommands: (projectPath: string) => Promise<Array<{
+    command: string
+    extensionId: string
+    extensionName: string
+  }>>
+  extensionsGetConfig: (extensionId: string) => Promise<Record<string, any> | null>
+  extensionsSetConfig: (extensionId: string, config: Record<string, any>) => Promise<{ success: boolean; error?: string }>
+  extensionsEnableForProject: (extensionId: string, projectPath: string) => Promise<{ success: boolean; error?: string }>
+  extensionsDisableForProject: (extensionId: string, projectPath: string) => Promise<{ success: boolean; error?: string }>
+  extensionsAddCustomUrl: (url: string) => Promise<{ success: boolean }>
+  extensionsRemoveCustomUrl: (url: string) => Promise<{ success: boolean }>
+  extensionsGetCustomUrls: () => Promise<string[]>
 }
 
 const api: ElectronAPI = {
@@ -355,7 +436,29 @@ const api: ElectronAPI = {
   refresh: () => ipcRenderer.invoke('app:refresh'),
 
   // Custom commands
-  commandsSave: (name, content, projectPath) => ipcRenderer.invoke('commands:save', { name, content, projectPath })
+  commandsSave: (name, content, projectPath) => ipcRenderer.invoke('commands:save', { name, content, projectPath }),
+
+  // Auto Work mode marker (for hooks) - placeholder implementations
+  autoworkSetActive: (projectPath) => ipcRenderer.invoke('autowork:setActive', projectPath),
+  autoworkClearActive: (projectPath) => ipcRenderer.invoke('autowork:clearActive', projectPath),
+
+  // Extensions
+  extensionsFetchRegistry: (forceRefresh) => ipcRenderer.invoke('extensions:fetchRegistry', forceRefresh),
+  extensionsFetchFromUrl: (url) => ipcRenderer.invoke('extensions:fetchFromUrl', url),
+  extensionsInstallSkill: (extension, scope, projectPath) => ipcRenderer.invoke('extensions:installSkill', { extension, scope, projectPath }),
+  extensionsInstallMcp: (extension, config) => ipcRenderer.invoke('extensions:installMcp', { extension, config }),
+  extensionsRemove: (extensionId) => ipcRenderer.invoke('extensions:remove', extensionId),
+  extensionsUpdate: (extensionId) => ipcRenderer.invoke('extensions:update', extensionId),
+  extensionsGetInstalled: () => ipcRenderer.invoke('extensions:getInstalled'),
+  extensionsGetForProject: (projectPath) => ipcRenderer.invoke('extensions:getForProject', projectPath),
+  extensionsGetCommands: (projectPath) => ipcRenderer.invoke('extensions:getCommands', projectPath),
+  extensionsGetConfig: (extensionId) => ipcRenderer.invoke('extensions:getConfig', extensionId),
+  extensionsSetConfig: (extensionId, config) => ipcRenderer.invoke('extensions:setConfig', { extensionId, config }),
+  extensionsEnableForProject: (extensionId, projectPath) => ipcRenderer.invoke('extensions:enableForProject', { extensionId, projectPath }),
+  extensionsDisableForProject: (extensionId, projectPath) => ipcRenderer.invoke('extensions:disableForProject', { extensionId, projectPath }),
+  extensionsAddCustomUrl: (url) => ipcRenderer.invoke('extensions:addCustomUrl', url),
+  extensionsRemoveCustomUrl: (url) => ipcRenderer.invoke('extensions:removeCustomUrl', url),
+  extensionsGetCustomUrls: () => ipcRenderer.invoke('extensions:getCustomUrls')
 }
 
 contextBridge.exposeInMainWorld('electronAPI', api)
