@@ -54,7 +54,8 @@ export default defineConfig({
       }
     },
     server: {
-      hmr: false  // Disable hot reload - use manual refresh button in debug mode
+      hmr: false,  // Disable hot reload - use manual refresh button in debug mode
+      watch: null  // Disable file watching to prevent reconnection spam
     },
     plugins: [react(), serveWhisperFiles()]
   }
