@@ -1,136 +1,28 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react'
-import ReactDOM from 'react-dom'
-import { Project, ProjectCategory, useWorkspaceStore } from '../stores/workspace'
-import { ProjectIcon } from './ProjectIcon'
+import { Project, useWorkspaceStore } from '../stores/workspace'
 import { BeadsPanel } from './BeadsPanel'
 import { VoiceControls } from './VoiceControls'
 import { ExtensionBrowser } from './ExtensionBrowser'
 import { ClaudeMdEditor } from './ClaudeMdEditor'
 import { useVoice } from '../contexts/VoiceContext'
-
-// Tool patterns for quick selection
-const COMMON_TOOLS = [
-  { label: 'Read', value: 'Read' },
-  { label: 'Write', value: 'Write' },
-  { label: 'Edit', value: 'Edit' },
-  { label: 'MultiEdit', value: 'MultiEdit' },
-  { label: 'Grep', value: 'Grep' },
-  { label: 'Glob', value: 'Glob' },
-  { label: 'LS', value: 'LS' },
-  { label: 'WebFetch', value: 'WebFetch' },
-  { label: 'WebSearch', value: 'WebSearch' },
-  { label: 'Questions', value: 'AskUserQuestion' },
-  { label: 'Task', value: 'Task' },
-  { label: 'TodoWrite', value: 'TodoWrite' },
-  { label: 'Git', value: 'Bash(git:*)' },
-  { label: 'npm', value: 'Bash(npm:*)' },
-  { label: 'All Bash', value: 'Bash' },
-]
-
-const PERMISSION_MODES = [
-  { label: 'Default', value: 'default', desc: 'Ask for permissions' },
-  { label: 'Accept Edits', value: 'acceptEdits', desc: 'Auto-accept edits' },
-  { label: "Don't Ask", value: 'dontAsk', desc: 'Skip prompts' },
-  { label: 'Bypass All', value: 'bypassPermissions', desc: 'Skip all checks' },
-]
-
-const API_SESSION_MODES = [
-  { label: 'Existing', value: 'existing', desc: 'Use existing session' },
-  { label: 'New (Keep)', value: 'new-keep', desc: 'New session, keep open' },
-  { label: 'New (Close)', value: 'new-close', desc: 'New session, auto-close' },
-]
-
-const API_MODELS = [
-  { label: 'Default', value: 'default', desc: 'Use default model' },
-  { label: 'Opus', value: 'opus', desc: 'Most capable' },
-  { label: 'Sonnet', value: 'sonnet', desc: 'Balanced' },
-  { label: 'Haiku', value: 'haiku', desc: 'Fast & cheap' },
-]
-
-const PROJECT_COLORS = [
-  { name: 'None', value: undefined },
-  { name: 'Red', value: '#ef4444' },
-  { name: 'Orange', value: '#f97316' },
-  { name: 'Amber', value: '#f59e0b' },
-  { name: 'Yellow', value: '#eab308' },
-  { name: 'Lime', value: '#84cc16' },
-  { name: 'Green', value: '#22c55e' },
-  { name: 'Teal', value: '#14b8a6' },
-  { name: 'Cyan', value: '#06b6d4' },
-  { name: 'Blue', value: '#3b82f6' },
-  { name: 'Indigo', value: '#6366f1' },
-  { name: 'Purple', value: '#a855f7' },
-  { name: 'Pink', value: '#ec4899' },
-]
-
-interface ClaudeSession {
-  sessionId: string
-  slug: string
-  lastModified: number
-}
-
-interface OpenTab {
-  id: string
-  projectPath: string
-  sessionId?: string
-}
-
-// Calculate relative luminance of a hex color
-function getLuminance(hex: string): number {
-  const r = parseInt(hex.slice(1, 3), 16) / 255
-  const g = parseInt(hex.slice(3, 5), 16) / 255
-  const b = parseInt(hex.slice(5, 7), 16) / 255
-
-  const toLinear = (c: number) => c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4)
-
-  return 0.2126 * toLinear(r) + 0.7152 * toLinear(g) + 0.0722 * toLinear(b)
-}
-
-// Helper to calculate gradient from project colors
-function getCategoryGradient(categoryProjects: Project[]): { background: string; textDark: boolean } {
-  const colors = categoryProjects
-    .map(p => p.color)
-    .filter(Boolean) as string[]
-
-  if (colors.length === 0) return { background: 'transparent', textDark: false }
-
-  // Calculate average luminance to determine text color
-  const avgLuminance = colors.reduce((sum, c) => sum + getLuminance(c), 0) / colors.length
-  const textDark = avgLuminance > 0.4  // Use dark text for bright backgrounds
-
-  if (colors.length === 1) return { background: `${colors[0]}66`, textDark }
-
-  // Create linear gradient with ~40% opacity colors (66 = 102/255 ≈ 40%)
-  const stops = colors.map((c, i) =>
-    `${c}66 ${(i / (colors.length - 1)) * 100}%`
-  ).join(', ')
-
-  return { background: `linear-gradient(135deg, ${stops})`, textDark }
-}
-
-interface SidebarProps {
-  projects: Project[]
-  openTabs: OpenTab[]
-  activeTabId: string | null
-  lastFocusedTabId: string | null
-  onAddProject: () => void
-  onRemoveProject: (path: string) => void
-  onOpenSession: (projectPath: string, sessionId?: string, slug?: string, initialPrompt?: string) => void
-  onSwitchToTab: (tabId: string) => void
-  onOpenSettings: () => void
-  onOpenMakeProject: () => void
-  onUpdateProject: (path: string, updates: Partial<Project>) => void
-  onCloseProjectTabs: (projectPath: string) => void
-  width: number
-  collapsed: boolean
-  onWidthChange: (width: number) => void
-  onCollapsedChange: (collapsed: boolean) => void
-}
+import {
+  ClaudeSession,
+  SidebarProps,
+  ProjectSettingsModalState,
+  InstalledVoice,
+  DropTarget,
+  getCategoryGradient,
+  COMMON_TOOLS,
+  ProjectItem,
+  ProjectContextMenu,
+  ProjectSettingsModal,
+  CategoryContextMenu,
+  DeleteConfirmModal,
+} from './sidebar'
 
 export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onAddProject, onRemoveProject, onOpenSession, onSwitchToTab, onOpenSettings, onOpenMakeProject, onUpdateProject, onCloseProjectTabs, width, collapsed, onWidthChange, onCollapsedChange }: SidebarProps) {
   const { volume, setVolume, speed, setSpeed, skipOnNew, setSkipOnNew, voiceOutputEnabled } = useVoice()
 
-  // Category state from workspace store
   const categories = useWorkspaceStore(state => state.categories)
   const addCategory = useWorkspaceStore(state => state.addCategory)
   const updateCategory = useWorkspaceStore(state => state.updateCategory)
@@ -139,31 +31,19 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
   const moveProjectToCategory = useWorkspaceStore(state => state.moveProjectToCategory)
   const reorderProjects = useWorkspaceStore(state => state.reorderProjects)
 
-  // Ref to always have latest activeTabId for voice transcription callback
   const activeTabIdRef = useRef(activeTabId)
   useEffect(() => {
     activeTabIdRef.current = activeTabId
   }, [activeTabId])
+
   const [expandedProject, setExpandedProject] = useState<string | null>(null)
   const [sessions, setSessions] = useState<Record<string, ClaudeSession[]>>({})
   const [beadsExpanded, setBeadsExpanded] = useState(true)
   const [isResizing, setIsResizing] = useState(false)
   const [contextMenu, setContextMenu] = useState<{ x: number; y: number; project: Project } | null>(null)
-  const [categoryContextMenu, setCategoryContextMenu] = useState<{ x: number; y: number; category: ProjectCategory } | null>(null)
-  const [projectSettingsModal, setProjectSettingsModal] = useState<{
-    project: Project
-    apiPort: string
-    apiSessionMode: 'existing' | 'new-keep' | 'new-close'
-    apiModel: 'default' | 'opus' | 'sonnet' | 'haiku'
-    tools: string[]
-    permissionMode: string
-    apiStatus?: 'checking' | 'success' | 'error'
-    apiError?: string
-    ttsVoice: string  // empty string means use global
-    ttsEngine: 'piper' | 'xtts' | ''  // empty string means use global
-    backend: 'default' | 'claude' | 'gemini' | 'codex' | 'opencode' | 'aider'
-  } | null>(null)
-  const [installedVoices, setInstalledVoices] = useState<Array<{ key: string; displayName: string; source: string }>>([])
+  const [categoryContextMenu, setCategoryContextMenu] = useState<{ x: number; y: number; category: ReturnType<typeof useWorkspaceStore.getState>['categories'][0] } | null>(null)
+  const [projectSettingsModal, setProjectSettingsModal] = useState<ProjectSettingsModalState | null>(null)
+  const [installedVoices, setInstalledVoices] = useState<InstalledVoice[]>([])
   const [globalVoiceSettings, setGlobalVoiceSettings] = useState<{ voice: string; engine: string }>({ voice: '', engine: '' })
   const [globalPermissions, setGlobalPermissions] = useState<{ tools: string[]; mode: string }>({ tools: [], mode: 'default' })
   const [apiStatus, setApiStatus] = useState<Record<string, { running: boolean; port?: number }>>({})
@@ -171,16 +51,18 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
   const [editingCategory, setEditingCategory] = useState<{ id: string; name: string } | null>(null)
   const [draggedProject, setDraggedProject] = useState<string | null>(null)
   const [draggedCategory, setDraggedCategory] = useState<string | null>(null)
-  const [dropTarget, setDropTarget] = useState<{ type: 'category' | 'project' | 'uncategorized'; id: string | null; position?: 'before' | 'after' } | null>(null)
+  const [dropTarget, setDropTarget] = useState<DropTarget | null>(null)
   const [isDebugMode, setIsDebugMode] = useState(false)
   const [extensionBrowserModal, setExtensionBrowserModal] = useState<{ project: Project } | null>(null)
   const [claudeMdEditorModal, setClaudeMdEditorModal] = useState<{ project: Project } | null>(null)
+  const [deleteConfirmModal, setDeleteConfirmModal] = useState<{ project: Project } | null>(null)
   const [taskCounts, setTaskCounts] = useState<Record<string, { open: number; inProgress: number }>>({})
+
   const sidebarRef = useRef<HTMLDivElement>(null)
   const editInputRef = useRef<HTMLInputElement>(null)
   const categoryEditInputRef = useRef<HTMLInputElement>(null)
 
-  // Resize handler
+  // Resize handling
   const handleMouseDown = useCallback((e: React.MouseEvent) => {
     e.preventDefault()
     setIsResizing(true)
@@ -192,10 +74,7 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
       const newWidth = Math.min(Math.max(e.clientX, 200), 500)
       onWidthChange(newWidth)
     }
-
-    const handleMouseUp = () => {
-      setIsResizing(false)
-    }
+    const handleMouseUp = () => setIsResizing(false)
 
     if (isResizing) {
       document.addEventListener('mousemove', handleMouseMove)
@@ -212,19 +91,17 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
     }
   }, [isResizing, onWidthChange])
 
-  // Get project path from last focused tab (or active tab as fallback)
+  // Computed values
   const focusedTabId = lastFocusedTabId || activeTabId
   const focusedTab = openTabs.find(t => t.id === focusedTabId)
   const focusedProjectPath = focusedTab?.projectPath || null
   const focusedTabPtyId = focusedTab?.ptyId || null
-  // Use expanded project if viewing sessions, otherwise use focused/active tab's project
   const beadsProjectPath = expandedProject || focusedProjectPath
 
+  // Project handlers
   const handleSelectExecutable = async (project: Project) => {
     const executable = await window.electronAPI.selectExecutable()
-    if (executable) {
-      onUpdateProject(project.path, { executable })
-    }
+    if (executable) onUpdateProject(project.path, { executable })
     setContextMenu(null)
   }
 
@@ -236,23 +113,15 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
   const handleRunExecutable = async (project: Project) => {
     if (project.executable) {
       const result = await window.electronAPI.runExecutable(project.executable, project.path)
-      if (!result.success) {
-        console.error('Failed to run executable:', result.error)
-      }
+      if (!result.success) console.error('Failed to run executable:', result.error)
     }
     setContextMenu(null)
   }
 
-  const handleContextMenu = (e: React.MouseEvent, project: Project) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setContextMenu({ x: e.clientX, y: e.clientY, project })
-  }
-
+  // Rename handlers
   const handleStartRename = (e: React.MouseEvent, project: Project) => {
     e.stopPropagation()
     setEditingProject({ path: project.path, name: project.name })
-    // Focus input after render
     setTimeout(() => editInputRef.current?.select(), 0)
   }
 
@@ -264,23 +133,18 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
   }
 
   const handleRenameKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleRenameSubmit()
-    } else if (e.key === 'Escape') {
-      setEditingProject(null)
-    }
+    if (e.key === 'Enter') handleRenameSubmit()
+    else if (e.key === 'Escape') setEditingProject(null)
   }
 
   // Category handlers
   const handleAddCategory = () => {
     const newId = addCategory('New Category')
-    // Start editing the new category name
     setEditingCategory({ id: newId, name: 'New Category' })
     setTimeout(() => categoryEditInputRef.current?.select(), 0)
   }
 
-  const handleStartCategoryRename = (e: React.MouseEvent, category: ProjectCategory) => {
-    e.stopPropagation()
+  const handleStartCategoryRename = (category: typeof categories[0]) => {
     setEditingCategory({ id: category.id, name: category.name })
     setTimeout(() => categoryEditInputRef.current?.select(), 0)
   }
@@ -293,32 +157,16 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
   }
 
   const handleCategoryRenameKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      handleCategoryRenameSubmit()
-    } else if (e.key === 'Escape') {
-      setEditingCategory(null)
-    }
-  }
-
-  const handleCategoryContextMenu = (e: React.MouseEvent, category: ProjectCategory) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setCategoryContextMenu({ x: e.clientX, y: e.clientY, category })
-  }
-
-  const handleDeleteCategory = (categoryId: string) => {
-    removeCategory(categoryId)
-    setCategoryContextMenu(null)
+    if (e.key === 'Enter') handleCategoryRenameSubmit()
+    else if (e.key === 'Escape') setEditingCategory(null)
   }
 
   const toggleCategoryCollapse = (categoryId: string) => {
     const category = categories.find(c => c.id === categoryId)
-    if (category) {
-      updateCategory(categoryId, { collapsed: !category.collapsed })
-    }
+    if (category) updateCategory(categoryId, { collapsed: !category.collapsed })
   }
 
-  // Drag and drop handlers for projects
+  // Drag and drop handlers
   const handleProjectDragStart = (e: React.DragEvent, projectPath: string) => {
     setDraggedProject(projectPath)
     e.dataTransfer.effectAllowed = 'move'
@@ -333,16 +181,12 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
   const handleCategoryDragOver = (e: React.DragEvent, categoryId: string | null) => {
     e.preventDefault()
     e.dataTransfer.dropEffect = 'move'
-    if (draggedProject) {
-      setDropTarget({ type: categoryId ? 'category' : 'uncategorized', id: categoryId })
-    }
+    if (draggedProject) setDropTarget({ type: categoryId ? 'category' : 'uncategorized', id: categoryId })
   }
 
   const handleCategoryDrop = (e: React.DragEvent, categoryId: string | null) => {
     e.preventDefault()
-    if (draggedProject) {
-      moveProjectToCategory(draggedProject, categoryId)
-    }
+    if (draggedProject) moveProjectToCategory(draggedProject, categoryId)
     setDraggedProject(null)
     setDropTarget(null)
   }
@@ -360,28 +204,20 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
     e.preventDefault()
     e.stopPropagation()
     if (draggedProject && draggedProject !== targetPath) {
-      // Move project to same category as target and reorder
       const draggedProjectData = projects.find(p => p.path === draggedProject)
       const targetProject = projects.find(p => p.path === targetPath)
 
       if (draggedProjectData && targetProject) {
-        // First move to same category
         moveProjectToCategory(draggedProject, targetCategoryId ?? null)
-
-        // Then reorder within category
         const categoryProjects = projects
           .filter(p => (targetCategoryId ? p.categoryId === targetCategoryId : !p.categoryId))
           .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
           .map(p => p.path)
 
-        // Remove dragged project from current position
         const newOrder = categoryProjects.filter(p => p !== draggedProject)
-
-        // Insert at new position
         const targetIndex = newOrder.indexOf(targetPath)
         const insertIndex = dropTarget?.position === 'after' ? targetIndex + 1 : targetIndex
         newOrder.splice(insertIndex, 0, draggedProject)
-
         reorderProjects(targetCategoryId ?? null, newOrder)
       }
     }
@@ -389,7 +225,6 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
     setDropTarget(null)
   }
 
-  // Category drag and drop handlers
   const handleCategoryDragStart = (e: React.DragEvent, categoryId: string) => {
     setDraggedCategory(categoryId)
     e.dataTransfer.effectAllowed = 'move'
@@ -414,46 +249,30 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
     if (draggedCategory && draggedCategory !== targetCategoryId) {
       const orderedCategories = [...categories].sort((a, b) => a.order - b.order)
       const categoryIds = orderedCategories.map(c => c.id)
-
-      // Remove dragged category from current position
       const newOrder = categoryIds.filter(id => id !== draggedCategory)
-
-      // Insert at new position
       const targetIndex = newOrder.indexOf(targetCategoryId)
       const insertIndex = dropTarget?.position === 'after' ? targetIndex + 1 : targetIndex
       newOrder.splice(insertIndex, 0, draggedCategory)
-
       reorderCategories(newOrder)
     }
     setDraggedCategory(null)
     setDropTarget(null)
   }
 
-  // Group projects by category
-  const sortedCategories = useMemo(() =>
-    [...categories].sort((a, b) => a.order - b.order),
-    [categories]
-  )
+  // Computed groupings
+  const sortedCategories = useMemo(() => [...categories].sort((a, b) => a.order - b.order), [categories])
 
   const projectsByCategory = useMemo(() => {
     const grouped: Record<string, Project[]> = {}
-
-    // Initialize groups for each category
-    sortedCategories.forEach(cat => {
-      grouped[cat.id] = []
-    })
+    sortedCategories.forEach(cat => { grouped[cat.id] = [] })
     grouped['uncategorized'] = []
 
-    // Sort projects into groups
     projects.forEach(project => {
       const key = project.categoryId || 'uncategorized'
-      if (!grouped[key]) {
-        grouped[key] = []
-      }
+      if (!grouped[key]) grouped[key] = []
       grouped[key].push(project)
     })
 
-    // Sort projects within each group by order
     Object.keys(grouped).forEach(key => {
       grouped[key].sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
     })
@@ -461,7 +280,7 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
     return grouped
   }, [projects, sortedCategories])
 
-  // Close context menus on click outside
+  // Effects
   useEffect(() => {
     const handleClick = () => {
       setContextMenu(null)
@@ -473,7 +292,6 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
     }
   }, [contextMenu, categoryContextMenu])
 
-  // Check API status when context menu opens
   useEffect(() => {
     if (contextMenu) {
       window.electronAPI.apiStatus(contextMenu.project.path).then((status) => {
@@ -482,7 +300,6 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
     }
   }, [contextMenu])
 
-  // Fetch task counts for all projects
   useEffect(() => {
     const fetchTaskCounts = async () => {
       const counts: Record<string, { open: number; inProgress: number }> = {}
@@ -497,33 +314,26 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
               counts[project.path] = { open, inProgress }
             }
           }
-        } catch {
-          // Silently ignore errors for individual projects
-        }
+        } catch { /* ignore */ }
       }
       setTaskCounts(counts)
     }
     fetchTaskCounts()
-    // Refresh every 30 seconds
     const interval = setInterval(fetchTaskCounts, 30000)
     return () => clearInterval(interval)
   }, [projects])
 
+  // Project settings modal handlers
   const handleOpenProjectSettings = async (project: Project) => {
-    // Fetch global settings to show comparison
     const settings = await window.electronAPI.getSettings()
-    setGlobalPermissions({
-      tools: settings.autoAcceptTools || [],
-      mode: settings.permissionMode || 'default'
-    })
+    setGlobalPermissions({ tools: settings.autoAcceptTools || [], mode: settings.permissionMode || 'default' })
 
-    // Load installed voices (Piper and XTTS)
     const [piperVoices, xttsVoices, voiceSettings] = await Promise.all([
       window.electronAPI.voiceGetInstalled?.() || [],
       window.electronAPI.xttsGetVoices?.() || [],
       window.electronAPI.voiceGetSettings?.() || {}
     ])
-    const combined: Array<{ key: string; displayName: string; source: string }> = []
+    const combined: InstalledVoice[] = []
     if (piperVoices) combined.push(...piperVoices)
     if (xttsVoices) {
       combined.push(...xttsVoices.map((v: { id: string; name: string }) => ({
@@ -533,10 +343,7 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
       })))
     }
     setInstalledVoices(combined)
-    setGlobalVoiceSettings({
-      voice: voiceSettings?.ttsVoice || '',
-      engine: voiceSettings?.ttsEngine || 'piper'
-    })
+    setGlobalVoiceSettings({ voice: voiceSettings?.ttsVoice || '', engine: voiceSettings?.ttsEngine || 'piper' })
 
     setProjectSettingsModal({
       project,
@@ -558,7 +365,6 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
     const port = parseInt(projectSettingsModal.apiPort, 10)
     const hasPortValue = projectSettingsModal.apiPort.trim() !== ''
 
-    // Validate port if provided
     if (hasPortValue && (isNaN(port) || port < 1024 || port > 65535)) {
       setProjectSettingsModal({ ...projectSettingsModal, apiStatus: 'error', apiError: 'Please enter a valid port number (1024-65535)' })
       return
@@ -567,14 +373,11 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
     const newPort = hasPortValue ? port : undefined
     const oldPort = projectSettingsModal.project.apiPort
 
-    // Handle API server changes
     if (newPort !== oldPort) {
       if (!newPort) {
-        // Clearing the port, stop server
         await window.electronAPI.apiStop(projectSettingsModal.project.path)
         setApiStatus(prev => ({ ...prev, [projectSettingsModal.project.path]: { running: false } }))
       } else {
-        // New port, try to start server
         setProjectSettingsModal({ ...projectSettingsModal, apiStatus: 'checking' })
         const result = await window.electronAPI.apiStart(projectSettingsModal.project.path, newPort)
         if (!result.success) {
@@ -585,7 +388,6 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
       }
     }
 
-    // Save all settings
     onUpdateProject(projectSettingsModal.project.path, {
       apiPort: newPort,
       apiSessionMode: projectSettingsModal.apiSessionMode !== 'existing' ? projectSettingsModal.apiSessionMode : undefined,
@@ -616,26 +418,6 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
     setContextMenu(null)
   }
 
-  const togglePermissionTool = (tool: string) => {
-    if (!projectSettingsModal) return
-    const newTools = projectSettingsModal.tools.includes(tool)
-      ? projectSettingsModal.tools.filter(t => t !== tool)
-      : [...projectSettingsModal.tools, tool]
-    setProjectSettingsModal({ ...projectSettingsModal, tools: newTools })
-  }
-
-  const handleAllowAll = () => {
-    if (!projectSettingsModal) return
-    const allTools = COMMON_TOOLS.map(t => t.value)
-    setProjectSettingsModal({ ...projectSettingsModal, tools: allTools, permissionMode: 'bypassPermissions' })
-  }
-
-  const handleClearAll = () => {
-    if (!projectSettingsModal) return
-    setProjectSettingsModal({ ...projectSettingsModal, tools: [], permissionMode: 'default' })
-  }
-
-  // Check API status for focused project
   useEffect(() => {
     if (focusedProjectPath) {
       window.electronAPI.apiStatus(focusedProjectPath).then((status) => {
@@ -644,7 +426,6 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
     }
   }, [focusedProjectPath])
 
-  // Check if running in debug mode
   useEffect(() => {
     window.electronAPI.isDebugMode().then(setIsDebugMode)
   }, [])
@@ -669,14 +450,12 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
   }
 
   const openMostRecentSession = async (projectPath: string) => {
-    // First check if any session from this project is already open
     const existingTab = openTabs.find(tab => tab.projectPath === projectPath)
     if (existingTab) {
       onSwitchToTab(existingTab.id)
       return
     }
 
-    // Load sessions if not already loaded
     let projectSessions = sessions[projectPath]
     if (!projectSessions) {
       try {
@@ -689,73 +468,75 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
     }
 
     if (projectSessions && projectSessions.length > 0) {
-      // Open most recent session (first in list since sorted by lastModified)
       const mostRecent = projectSessions[0]
       onOpenSession(projectPath, mostRecent.sessionId, mostRecent.slug)
     } else {
-      // No existing sessions, start a new one
       onOpenSession(projectPath)
     }
   }
 
-  const formatDate = (timestamp: number) => {
-    const date = new Date(timestamp)
-    const now = new Date()
-    const diff = now.getTime() - date.getTime()
-    const minutes = Math.floor(diff / (1000 * 60))
-    const hours = Math.floor(diff / (1000 * 60 * 60))
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24))
-
-    if (minutes < 1) {
-      return 'Just now'
-    } else if (minutes < 60) {
-      return `${minutes}m ago`
-    } else if (hours < 24) {
-      return `${hours}h ago`
-    } else if (days === 1) {
-      return 'Yesterday'
-    } else if (days < 7) {
-      return `${days}d ago`
-    } else {
-      return date.toLocaleDateString()
-    }
-  }
+  // Render project item
+  const renderProjectItem = (project: Project) => (
+    <ProjectItem
+      key={project.path}
+      project={project}
+      isExpanded={expandedProject === project.path}
+      isFocused={focusedProjectPath === project.path}
+      hasOpenTab={openTabs.some(t => t.projectPath === project.path)}
+      isDragging={draggedProject === project.path}
+      isEditing={editingProject?.path === project.path}
+      editingName={editingProject?.path === project.path ? editingProject.name : ''}
+      sessions={sessions[project.path] || []}
+      taskCounts={taskCounts[project.path]}
+      dropTarget={dropTarget}
+      editInputRef={editInputRef}
+      onToggleExpand={(e) => toggleProject(e, project.path)}
+      onOpenSession={(sessionId, slug) => {
+        if (sessionId) {
+          onOpenSession(project.path, sessionId, slug)
+        } else {
+          openMostRecentSession(project.path)
+        }
+      }}
+      onRunExecutable={() => handleRunExecutable(project)}
+      onCloseProjectTabs={() => onCloseProjectTabs(project.path)}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        setContextMenu({ x: e.clientX, y: e.clientY, project })
+      }}
+      onDragStart={(e) => handleProjectDragStart(e, project.path)}
+      onDragEnd={handleProjectDragEnd}
+      onDragOver={(e) => {
+        const rect = e.currentTarget.getBoundingClientRect()
+        const midY = rect.top + rect.height / 2
+        const position = e.clientY < midY ? 'before' : 'after'
+        handleProjectDragOver(e, project.path, position)
+      }}
+      onDrop={(e) => handleProjectDrop(e, project.path, project.categoryId)}
+      onStartRename={(e) => handleStartRename(e, project)}
+      onEditingChange={(name) => setEditingProject(prev => prev ? { ...prev, name } : null)}
+      onRenameSubmit={handleRenameSubmit}
+      onRenameKeyDown={handleRenameKeyDown}
+    />
+  )
 
   if (collapsed) {
     return (
       <div className="sidebar collapsed" ref={sidebarRef}>
-        <button
-          className="sidebar-collapse-btn"
-          onClick={() => onCollapsedChange(false)}
-          title="Expand sidebar"
-        >
-          ▶
-        </button>
+        <button className="sidebar-collapse-btn" onClick={() => onCollapsedChange(false)} title="Expand sidebar">▶</button>
       </div>
     )
   }
 
   return (
     <div className="sidebar" ref={sidebarRef} style={{ width }}>
-      <button
-        className="sidebar-collapse-btn"
-        onClick={() => onCollapsedChange(true)}
-        title="Collapse sidebar"
-      >
-        ◀
-      </button>
+      <button className="sidebar-collapse-btn" onClick={() => onCollapsedChange(true)} title="Collapse sidebar">◀</button>
       <div className="sidebar-header">
         Projects
-        <button
-          className="add-category-btn"
-          onClick={handleAddCategory}
-          title="Add category"
-        >
-          +
-        </button>
+        <button className="add-category-btn" onClick={handleAddCategory} title="Add category">+</button>
       </div>
       <div className="projects-list">
-        {/* Render categories */}
         {sortedCategories.map((category) => {
           const categoryProjects = projectsByCategory[category.id] || []
           const { background: gradient, textDark } = getCategoryGradient(categoryProjects)
@@ -765,7 +546,6 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
               key={category.id}
               className={`category-container ${dropTarget?.type === 'category' && dropTarget.id === category.id && !dropTarget.position ? 'drop-target' : ''}`}
             >
-              {/* Drop indicator before category */}
               {dropTarget?.type === 'category' && dropTarget.id === category.id && dropTarget.position === 'before' && (
                 <div className="drop-indicator" />
               )}
@@ -780,25 +560,21 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
                   const rect = e.currentTarget.getBoundingClientRect()
                   const midY = rect.top + rect.height / 2
                   const position = e.clientY < midY ? 'before' : 'after'
-                  if (draggedCategory) {
-                    handleCategoryHeaderDragOver(e, category.id, position)
-                  } else if (draggedProject) {
-                    handleCategoryDragOver(e, category.id)
-                  }
+                  if (draggedCategory) handleCategoryHeaderDragOver(e, category.id, position)
+                  else if (draggedProject) handleCategoryDragOver(e, category.id)
                 }}
                 onDrop={(e) => {
-                  if (draggedCategory) {
-                    handleCategoryHeaderDrop(e, category.id)
-                  } else if (draggedProject) {
-                    handleCategoryDrop(e, category.id)
-                  }
+                  if (draggedCategory) handleCategoryHeaderDrop(e, category.id)
+                  else if (draggedProject) handleCategoryDrop(e, category.id)
                 }}
                 onClick={() => toggleCategoryCollapse(category.id)}
-                onContextMenu={(e) => handleCategoryContextMenu(e, category)}
+                onContextMenu={(e) => {
+                  e.preventDefault()
+                  e.stopPropagation()
+                  setCategoryContextMenu({ x: e.clientX, y: e.clientY, category })
+                }}
               >
-                <span className="expand-arrow">
-                  {category.collapsed ? '▶' : '▼'}
-                </span>
+                <span className="expand-arrow">{category.collapsed ? '▶' : '▼'}</span>
                 {editingCategory?.id === category.id ? (
                   <input
                     ref={categoryEditInputRef}
@@ -811,156 +587,24 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
                     onClick={(e) => e.stopPropagation()}
                   />
                 ) : (
-                  <span
-                    className="category-name"
-                    onDoubleClick={(e) => handleStartCategoryRename(e, category)}
-                  >
+                  <span className="category-name" onDoubleClick={() => handleStartCategoryRename(category)}>
                     {category.name}
                   </span>
                 )}
                 <span className="category-count">{categoryProjects.length}</span>
               </div>
 
-              {/* Drop indicator after category header */}
               {dropTarget?.type === 'category' && dropTarget.id === category.id && dropTarget.position === 'after' && (
                 <div className="drop-indicator" />
               )}
 
-              {/* Category projects */}
               {!category.collapsed && (
-                <div className="category-projects">
-                  {categoryProjects.map((project) => (
-                    <div key={project.path}>
-                      {/* Drop indicator before project */}
-                      {dropTarget?.type === 'project' && dropTarget.id === project.path && dropTarget.position === 'before' && (
-                        <div className="drop-indicator" />
-                      )}
-
-                      <div
-                        className={`project-item ${expandedProject === project.path ? 'expanded' : ''} ${openTabs.some(t => t.projectPath === project.path) ? 'has-open-tab' : ''} ${project.executable ? 'has-executable' : ''} ${project.color ? 'has-color' : ''} ${focusedProjectPath === project.path ? 'focused' : ''} ${draggedProject === project.path ? 'dragging' : ''}`}
-                        style={project.color ? { backgroundColor: `${project.color}20` } : undefined}
-                        draggable={!editingProject}
-                        onDragStart={(e) => handleProjectDragStart(e, project.path)}
-                        onDragEnd={handleProjectDragEnd}
-                        onDragOver={(e) => {
-                          const rect = e.currentTarget.getBoundingClientRect()
-                          const midY = rect.top + rect.height / 2
-                          const position = e.clientY < midY ? 'before' : 'after'
-                          handleProjectDragOver(e, project.path, position)
-                        }}
-                        onDrop={(e) => handleProjectDrop(e, project.path, project.categoryId)}
-                        onClick={() => openMostRecentSession(project.path)}
-                        onContextMenu={(e) => handleContextMenu(e, project)}
-                      >
-                        <span
-                          className="expand-arrow"
-                          onClick={(e) => toggleProject(e, project.path)}
-                          title="Show all sessions"
-                        >
-                          {expandedProject === project.path ? '▼' : '▶'}
-                        </span>
-                        <ProjectIcon projectName={project.name} size={28} />
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          {editingProject?.path === project.path ? (
-                            <input
-                              ref={editInputRef}
-                              type="text"
-                              className="project-name-input"
-                              value={editingProject.name}
-                              onChange={(e) => setEditingProject({ ...editingProject, name: e.target.value })}
-                              onKeyDown={handleRenameKeyDown}
-                              onBlur={handleRenameSubmit}
-                              onClick={(e) => e.stopPropagation()}
-                            />
-                          ) : (
-                            <div
-                              className="project-name"
-                              title={project.name}
-                              onDoubleClick={(e) => handleStartRename(e, project)}
-                            >
-                              {project.name}
-                            </div>
-                          )}
-                          {taskCounts[project.path] ? (
-                            <div className="project-tasks" title={project.path}>
-                              {taskCounts[project.path].open + taskCounts[project.path].inProgress > 0 ? (
-                                <>
-                                  <span className="task-count">{taskCounts[project.path].open + taskCounts[project.path].inProgress} tasks</span>
-                                  {taskCounts[project.path].inProgress > 0 && (
-                                    <span className="task-in-progress">({taskCounts[project.path].inProgress} active)</span>
-                                  )}
-                                </>
-                              ) : (
-                                <span className="task-count task-done">No open tasks</span>
-                              )}
-                            </div>
-                          ) : (
-                            <div className="project-path" title={project.path}>{project.path}</div>
-                          )}
-                        </div>
-                        {project.executable && (
-                          <button
-                            className="start-btn"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              handleRunExecutable(project)
-                            }}
-                            title={`Run: ${project.executable}`}
-                          >
-                            ▶
-                          </button>
-                        )}
-                        {openTabs.some(t => t.projectPath === project.path) && (
-                          <button
-                            className="close-project-btn"
-                            onClick={(e) => {
-                              e.stopPropagation()
-                              onCloseProjectTabs(project.path)
-                            }}
-                            title="Close all terminals for this project"
-                          >
-                            ×
-                          </button>
-                        )}
-                      </div>
-
-                      {/* Drop indicator after project */}
-                      {dropTarget?.type === 'project' && dropTarget.id === project.path && dropTarget.position === 'after' && (
-                        <div className="drop-indicator" />
-                      )}
-
-                      {expandedProject === project.path && (
-                        <div className="sessions-list">
-                          <div
-                            className="session-item new-session"
-                            onClick={() => onOpenSession(project.path)}
-                          >
-                            <span>+</span>
-                            <span>New Session</span>
-                          </div>
-                          {(sessions[project.path] || []).map((session, index) => (
-                            <div
-                              key={session.sessionId}
-                              className={`session-item ${index === 0 ? 'most-recent' : ''}`}
-                              onClick={() => onOpenSession(project.path, session.sessionId, session.slug)}
-                              title={`Session ID: ${session.sessionId}`}
-                            >
-                              <span className="session-icon">{index === 0 ? '●' : '◦'}</span>
-                              <span className="session-name" title={session.slug}>{session.slug}</span>
-                              <span className="session-time">{formatDate(session.lastModified)}</span>
-                            </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
+                <div className="category-projects">{categoryProjects.map(renderProjectItem)}</div>
               )}
             </div>
           )
         })}
 
-        {/* Uncategorized projects section */}
         {(projectsByCategory['uncategorized']?.length > 0 || sortedCategories.length > 0) && (
           <div
             className={`uncategorized-section ${dropTarget?.type === 'uncategorized' ? 'drop-target' : ''}`}
@@ -970,225 +614,62 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
             {sortedCategories.length > 0 && projectsByCategory['uncategorized']?.length > 0 && (
               <div className="uncategorized-header">Uncategorized</div>
             )}
-            {projectsByCategory['uncategorized']?.map((project) => (
-              <div key={project.path}>
-                {/* Drop indicator before project */}
-                {dropTarget?.type === 'project' && dropTarget.id === project.path && dropTarget.position === 'before' && (
-                  <div className="drop-indicator" />
-                )}
-
-                <div
-                  className={`project-item ${expandedProject === project.path ? 'expanded' : ''} ${openTabs.some(t => t.projectPath === project.path) ? 'has-open-tab' : ''} ${project.executable ? 'has-executable' : ''} ${project.color ? 'has-color' : ''} ${focusedProjectPath === project.path ? 'focused' : ''} ${draggedProject === project.path ? 'dragging' : ''}`}
-                  style={project.color ? { backgroundColor: `${project.color}20` } : undefined}
-                  draggable={!editingProject}
-                  onDragStart={(e) => handleProjectDragStart(e, project.path)}
-                  onDragEnd={handleProjectDragEnd}
-                  onDragOver={(e) => {
-                    const rect = e.currentTarget.getBoundingClientRect()
-                    const midY = rect.top + rect.height / 2
-                    const position = e.clientY < midY ? 'before' : 'after'
-                    handleProjectDragOver(e, project.path, position)
-                  }}
-                  onDrop={(e) => handleProjectDrop(e, project.path, undefined)}
-                  onClick={() => openMostRecentSession(project.path)}
-                  onContextMenu={(e) => handleContextMenu(e, project)}
-                >
-                  <span
-                    className="expand-arrow"
-                    onClick={(e) => toggleProject(e, project.path)}
-                    title="Show all sessions"
-                  >
-                    {expandedProject === project.path ? '▼' : '▶'}
-                  </span>
-                  <ProjectIcon projectName={project.name} size={28} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    {editingProject?.path === project.path ? (
-                      <input
-                        ref={editInputRef}
-                        type="text"
-                        className="project-name-input"
-                        value={editingProject.name}
-                        onChange={(e) => setEditingProject({ ...editingProject, name: e.target.value })}
-                        onKeyDown={handleRenameKeyDown}
-                        onBlur={handleRenameSubmit}
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    ) : (
-                      <div
-                        className="project-name"
-                        title={project.name}
-                        onDoubleClick={(e) => handleStartRename(e, project)}
-                      >
-                        {project.name}
-                      </div>
-                    )}
-                    {taskCounts[project.path] ? (
-                      <div className="project-tasks" title={project.path}>
-                        {taskCounts[project.path].open + taskCounts[project.path].inProgress > 0 ? (
-                          <>
-                            <span className="task-count">{taskCounts[project.path].open + taskCounts[project.path].inProgress} tasks</span>
-                            {taskCounts[project.path].inProgress > 0 && (
-                              <span className="task-in-progress">({taskCounts[project.path].inProgress} active)</span>
-                            )}
-                          </>
-                        ) : (
-                          <span className="task-count task-done">No open tasks</span>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="project-path" title={project.path}>{project.path}</div>
-                    )}
-                  </div>
-                  {project.executable && (
-                    <button
-                      className="start-btn"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleRunExecutable(project)
-                      }}
-                      title={`Run: ${project.executable}`}
-                    >
-                      ▶
-                    </button>
-                  )}
-                  {openTabs.some(t => t.projectPath === project.path) && (
-                    <button
-                      className="close-project-btn"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        onCloseProjectTabs(project.path)
-                      }}
-                      title="Close all terminals for this project"
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
-
-                {/* Drop indicator after project */}
-                {dropTarget?.type === 'project' && dropTarget.id === project.path && dropTarget.position === 'after' && (
-                  <div className="drop-indicator" />
-                )}
-
-                {expandedProject === project.path && (
-                  <div className="sessions-list">
-                    <div
-                      className="session-item new-session"
-                      onClick={() => onOpenSession(project.path)}
-                    >
-                      <span>+</span>
-                      <span>New Session</span>
-                    </div>
-                    {(sessions[project.path] || []).map((session, index) => (
-                      <div
-                        key={session.sessionId}
-                        className={`session-item ${index === 0 ? 'most-recent' : ''}`}
-                        onClick={() => onOpenSession(project.path, session.sessionId, session.slug)}
-                        title={`Session ID: ${session.sessionId}`}
-                      >
-                        <span className="session-icon">{index === 0 ? '●' : '◦'}</span>
-                        <span className="session-name" title={session.slug}>{session.slug}</span>
-                        <span className="session-time">{formatDate(session.lastModified)}</span>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
+            {projectsByCategory['uncategorized']?.map(renderProjectItem)}
           </div>
         )}
 
         {projects.length === 0 && (
-          <div className="empty-projects">
-            No projects yet.<br />Click + to add one.
-          </div>
+          <div className="empty-projects">No projects yet.<br />Click + to add one.</div>
         )}
         <div className="project-add-buttons">
-          <button
-            className="add-project-btn"
-            onClick={onOpenMakeProject}
-            title="Create new project from scratch"
-          >
-            + make
-          </button>
-          <button
-            className="add-project-btn"
-            onClick={onAddProject}
-            title="Add existing project folder"
-          >
-            + add
-          </button>
+          <button className="add-project-btn" onClick={onOpenMakeProject} title="Create new project from scratch">+ make</button>
+          <button className="add-project-btn" onClick={onAddProject} title="Add existing project folder">+ add</button>
         </div>
       </div>
+
       <BeadsPanel
         projectPath={beadsProjectPath}
         isExpanded={beadsExpanded}
         onToggle={() => setBeadsExpanded(!beadsExpanded)}
         onStartTaskInNewTab={(prompt) => {
-          if (beadsProjectPath) {
-            onOpenSession(beadsProjectPath, undefined, undefined, prompt)
-          }
+          if (beadsProjectPath) onOpenSession(beadsProjectPath, undefined, undefined, prompt)
         }}
         onSendToCurrentTab={(prompt) => {
           if (focusedTabPtyId) {
             window.electronAPI.writePty(focusedTabPtyId, prompt)
-            setTimeout(() => {
-              window.electronAPI.writePty(focusedTabPtyId, '\r')
-            }, 100)
+            setTimeout(() => window.electronAPI.writePty(focusedTabPtyId, '\r'), 100)
           }
         }}
         currentTabPtyId={focusedTabPtyId}
       />
+
       {voiceOutputEnabled && (
         <div className="voice-options">
           <div className="voice-slider-row">
             <span className="voice-option-icon" title="Volume">🔊</span>
-            <input
-              type="range"
-              min="0"
-              max="1"
-              step="0.05"
-              value={volume}
-              onChange={(e) => setVolume(parseFloat(e.target.value))}
-              className="voice-slider"
-            />
+            <input type="range" min="0" max="1" step="0.05" value={volume} onChange={(e) => setVolume(parseFloat(e.target.value))} className="voice-slider" />
             <span className="voice-slider-value">{Math.round(volume * 100)}%</span>
           </div>
           <div className="voice-slider-row">
             <span className="voice-option-icon" title="Speed">⏩</span>
-            <input
-              type="range"
-              min="0.5"
-              max="2"
-              step="0.1"
-              value={speed}
-              onChange={(e) => setSpeed(parseFloat(e.target.value))}
-              className="voice-slider"
-            />
+            <input type="range" min="0.5" max="2" step="0.1" value={speed} onChange={(e) => setSpeed(parseFloat(e.target.value))} className="voice-slider" />
             <span className="voice-slider-value">{speed.toFixed(1)}x</span>
           </div>
           <label className="voice-option-checkbox" title="Skip to latest message instead of queuing">
-            <input
-              type="checkbox"
-              checked={skipOnNew}
-              onChange={(e) => setSkipOnNew(e.target.checked)}
-            />
+            <input type="checkbox" checked={skipOnNew} onChange={(e) => setSkipOnNew(e.target.checked)} />
             <span>Skip to new</span>
           </label>
         </div>
       )}
+
       <div className="sidebar-actions">
         <VoiceControls
           activeTabId={activeTabId}
           onTranscription={(text) => {
-            // Use ref to always get current active tab, not the one when recording started
             const currentTabId = activeTabIdRef.current
             if (currentTabId) {
-              // Send text first, then carriage return after delay (like API does)
               window.electronAPI.writePty(currentTabId, text)
-              setTimeout(() => {
-                window.electronAPI.writePty(currentTabId, '\r')
-              }, 100)
+              setTimeout(() => window.electronAPI.writePty(currentTabId, '\r'), 100)
             }
           }}
         />
@@ -1201,11 +682,8 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
               <button
                 className={`action-icon-btn ${status?.running ? 'enabled' : ''}`}
                 onClick={() => {
-                  if (!hasPort) {
-                    handleOpenProjectSettings(focusedProject)
-                  } else {
-                    handleToggleApi(focusedProject)
-                  }
+                  if (!hasPort) handleOpenProjectSettings(focusedProject)
+                  else handleToggleApi(focusedProject)
                 }}
                 tabIndex={-1}
                 title={status?.running ? `Stop API (port ${focusedProject.apiPort})` : hasPort ? `Start API (port ${focusedProject.apiPort})` : 'Configure API'}
@@ -1217,484 +695,123 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
           return null
         })()}
         {isDebugMode && (
-          <button
-            className="action-icon-btn"
-            onClick={() => window.electronAPI.refresh()}
-            tabIndex={-1}
-            title="Refresh (Debug Mode)"
-          >
-            🔄
-          </button>
+          <button className="action-icon-btn" onClick={() => window.electronAPI.refresh()} tabIndex={-1} title="Refresh (Debug Mode)">🔄</button>
         )}
-        <button
-          className="action-icon-btn"
-          onClick={onOpenSettings}
-          tabIndex={-1}
-          title="Settings"
-        >
-          ⚙️
-        </button>
+        <button className="action-icon-btn" onClick={onOpenSettings} tabIndex={-1} title="Settings">⚙️</button>
       </div>
-      <div
-        className="sidebar-resize-handle"
-        onMouseDown={handleMouseDown}
-      />
+      <div className="sidebar-resize-handle" onMouseDown={handleMouseDown} />
 
-      {/* Context Menu - rendered via portal to avoid layout issues */}
-      {contextMenu && ReactDOM.createPortal(
-        <div
-          className="context-menu"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {contextMenu.project.executable ? (
-            <>
-              <button onClick={() => handleRunExecutable(contextMenu.project)}>
-                <span className="icon">▶</span> Run App
-              </button>
-              <button onClick={() => handleSelectExecutable(contextMenu.project)}>
-                <span className="icon">⚡</span> Change Executable
-              </button>
-              <button onClick={() => handleClearExecutable(contextMenu.project)}>
-                <span className="icon">✕</span> Clear Executable
-              </button>
-            </>
-          ) : (
-            <button onClick={() => handleSelectExecutable(contextMenu.project)}>
-              <span className="icon">⚡</span> Set Executable
-            </button>
-          )}
-          <div className="context-menu-divider" />
-          <button onClick={() => handleOpenProjectSettings(contextMenu.project)}>
-            <span className="icon">⚙</span> Project Settings
-            {(contextMenu.project.apiPort || contextMenu.project.autoAcceptTools?.length || contextMenu.project.permissionMode) && (
-              <span className="menu-hint">configured</span>
-            )}
-          </button>
-          <button onClick={() => {
+      {/* Context Menu */}
+      {contextMenu && (
+        <ProjectContextMenu
+          x={contextMenu.x}
+          y={contextMenu.y}
+          project={contextMenu.project}
+          categories={categories}
+          onClose={() => setContextMenu(null)}
+          onRunExecutable={() => handleRunExecutable(contextMenu.project)}
+          onSelectExecutable={() => handleSelectExecutable(contextMenu.project)}
+          onClearExecutable={() => handleClearExecutable(contextMenu.project)}
+          onOpenSettings={() => handleOpenProjectSettings(contextMenu.project)}
+          onOpenExtensions={() => {
             setExtensionBrowserModal({ project: contextMenu.project })
             setContextMenu(null)
-          }}>
-            <span className="icon">🧩</span> Extensions...
-          </button>
-          <button onClick={() => {
+          }}
+          onEditClaudeMd={() => {
             setClaudeMdEditorModal({ project: contextMenu.project })
             setContextMenu(null)
-          }}>
-            <span className="icon">📝</span> Edit CLAUDE.md
-          </button>
-          <div className="context-menu-divider" />
-          <div className="context-menu-label">Color</div>
-          <div className="color-picker-row">
-            {PROJECT_COLORS.map((color) => (
-              <button
-                key={color.name}
-                className={`color-swatch ${contextMenu.project.color === color.value ? 'selected' : ''} ${!color.value ? 'none' : ''}`}
-                style={color.value ? { backgroundColor: color.value } : undefined}
-                title={color.name}
-                onClick={() => {
-                  onUpdateProject(contextMenu.project.path, { color: color.value })
-                  setContextMenu(null)
-                }}
-              >
-                {!color.value && '✕'}
-              </button>
-            ))}
-          </div>
-          <div className="context-menu-divider" />
-          <div className="context-menu-label">Move to Category</div>
-          <div className="category-move-options">
-            <button
-              className={!contextMenu.project.categoryId ? 'selected' : ''}
-              onClick={() => {
-                moveProjectToCategory(contextMenu.project.path, null)
-                setContextMenu(null)
-              }}
-            >
-              <span className="icon">—</span> None
-            </button>
-            {sortedCategories.map((cat) => (
-              <button
-                key={cat.id}
-                className={contextMenu.project.categoryId === cat.id ? 'selected' : ''}
-                onClick={() => {
-                  moveProjectToCategory(contextMenu.project.path, cat.id)
-                  setContextMenu(null)
-                }}
-              >
-                <span className="icon">📁</span> {cat.name}
-              </button>
-            ))}
-            <button
-              onClick={() => {
-                const newId = addCategory('New Category')
-                moveProjectToCategory(contextMenu.project.path, newId)
-                setContextMenu(null)
-                setEditingCategory({ id: newId, name: 'New Category' })
-                setTimeout(() => categoryEditInputRef.current?.select(), 0)
-              }}
-            >
-              <span className="icon">+</span> New Category
-            </button>
-          </div>
-          <div className="context-menu-divider" />
-          <button
-            className="danger"
-            onClick={() => {
-              onRemoveProject(contextMenu.project.path)
-              setContextMenu(null)
-            }}
-          >
-            <span className="icon">🗑</span> Remove Project
-          </button>
-        </div>,
-        document.body
+          }}
+          onUpdateColor={(color) => onUpdateProject(contextMenu.project.path, { color })}
+          onMoveToCategory={(categoryId) => moveProjectToCategory(contextMenu.project.path, categoryId)}
+          onCreateCategory={() => {
+            const newId = addCategory('New Category')
+            moveProjectToCategory(contextMenu.project.path, newId)
+            setContextMenu(null)
+            setEditingCategory({ id: newId, name: 'New Category' })
+            setTimeout(() => categoryEditInputRef.current?.select(), 0)
+          }}
+          onDelete={() => {
+            setDeleteConfirmModal({ project: contextMenu.project })
+            setContextMenu(null)
+          }}
+        />
       )}
 
-      {/* Project Settings Modal - rendered via portal */}
-      {projectSettingsModal && ReactDOM.createPortal(
-        <div className="modal-overlay" onClick={() => !projectSettingsModal.apiStatus && setProjectSettingsModal(null)}>
-          <div className="modal project-settings-modal" onClick={(e) => e.stopPropagation()}>
-            <div className="modal-header">
-              <h2>Project Settings: {projectSettingsModal.project.name}</h2>
-              <button className="modal-close" onClick={() => setProjectSettingsModal(null)}>×</button>
-            </div>
-            <div className="modal-content">
-              {/* API Settings Section */}
-              <div className="settings-section">
-                <h3>API Settings</h3>
-                <p className="form-hint">Enable HTTP API to send prompts to this project's terminal.</p>
+      {/* Delete Confirmation Modal */}
+      {deleteConfirmModal && (
+        <DeleteConfirmModal
+          project={deleteConfirmModal.project}
+          onClose={() => setDeleteConfirmModal(null)}
+          onConfirm={() => {
+            onRemoveProject(deleteConfirmModal.project.path)
+            setDeleteConfirmModal(null)
+          }}
+        />
+      )}
 
-                <div className="form-group">
-                  <label>Port Number</label>
-                  <input
-                    type="number"
-                    min="1024"
-                    max="65535"
-                    value={projectSettingsModal.apiPort}
-                    onChange={(e) => setProjectSettingsModal({ ...projectSettingsModal, apiPort: e.target.value, apiStatus: undefined, apiError: undefined })}
-                    placeholder="e.g., 3001 (leave empty to disable)"
-                    disabled={projectSettingsModal.apiStatus === 'checking'}
-                    className={projectSettingsModal.apiStatus === 'error' ? 'input-error' : ''}
-                  />
-                  {projectSettingsModal.apiStatus === 'error' && (
-                    <p className="error-message">{projectSettingsModal.apiError}</p>
-                  )}
-                </div>
-
-                <div className="form-group">
-                  <label>Session Mode</label>
-                  <p className="form-hint">How API requests handle terminal sessions.</p>
-                  <div className={`session-mode-options ${!projectSettingsModal.apiPort ? 'disabled' : ''}`}>
-                    {API_SESSION_MODES.map((mode) => (
-                      <label key={mode.value} className={`session-mode-option ${projectSettingsModal.apiSessionMode === mode.value ? 'selected' : ''}`}>
-                        <input
-                          type="radio"
-                          name="apiSessionMode"
-                          value={mode.value}
-                          checked={projectSettingsModal.apiSessionMode === mode.value}
-                          onChange={(e) => setProjectSettingsModal({ ...projectSettingsModal, apiSessionMode: e.target.value as 'existing' | 'new-keep' | 'new-close' })}
-                          disabled={!projectSettingsModal.apiPort}
-                        />
-                        <span className="mode-label">{mode.label}</span>
-                        <span className="mode-desc">{mode.desc}</span>
-                      </label>
-                    ))}
-                  </div>
-                </div>
-
-                {/* Model selection - only for new session modes */}
-                {projectSettingsModal.apiSessionMode !== 'existing' && (
-                  <div className="form-group">
-                    <label>API Session Model</label>
-                    <p className="form-hint">Model for API-triggered sessions. Use cheaper models for automated workflows.</p>
-                    <div className={`session-mode-options ${!projectSettingsModal.apiPort ? 'disabled' : ''}`}>
-                      {API_MODELS.map((model) => (
-                        <label key={model.value} className={`session-mode-option ${projectSettingsModal.apiModel === model.value ? 'selected' : ''}`}>
-                          <input
-                            type="radio"
-                            name="apiModel"
-                            value={model.value}
-                            checked={projectSettingsModal.apiModel === model.value}
-                            onChange={(e) => setProjectSettingsModal({ ...projectSettingsModal, apiModel: e.target.value as 'default' | 'opus' | 'sonnet' | 'haiku' })}
-                            disabled={!projectSettingsModal.apiPort}
-                          />
-                          <span className="mode-label">{model.label}</span>
-                          <span className="mode-desc">{model.desc}</span>
-                        </label>
-                      ))}
-                    </div>
-                  </div>
-                )}
-
-                {projectSettingsModal.apiPort && (
-                  <p className="form-hint api-usage">
-                    Usage: <code>curl -X POST http://localhost:{projectSettingsModal.apiPort}/prompt -d '{`{"prompt":"..."}`}'</code>
-                  </p>
-                )}
-              </div>
-
-              {/* Permissions Section */}
-              <div className="settings-section">
-                <h3>Permissions</h3>
-                <p className="form-hint">Override global permission settings for this project.</p>
-
-                <div className="form-group">
-                  <label>Auto-Accept Tools</label>
-                  <div className="tool-chips">
-                    {COMMON_TOOLS.map((tool) => {
-                      const isProjectSelected = projectSettingsModal.tools.includes(tool.value)
-                      const isGlobalSelected = globalPermissions.tools.includes(tool.value)
-                      return (
-                        <button
-                          key={tool.value}
-                          className={`tool-chip ${isProjectSelected ? 'selected' : ''} ${isGlobalSelected && !isProjectSelected ? 'global' : ''}`}
-                          onClick={() => togglePermissionTool(tool.value)}
-                          title={`${tool.value}${isGlobalSelected ? ' (enabled in global settings)' : ''}`}
-                        >
-                          {tool.label}
-                          {isGlobalSelected && !isProjectSelected && <span className="global-indicator">G</span>}
-                        </button>
-                      )
-                    })}
-                  </div>
-                </div>
-
-                <div className="form-group">
-                  <label>Permission Mode</label>
-                  {globalPermissions.mode !== 'default' && projectSettingsModal.permissionMode === 'default' && (
-                    <p className="form-hint global-hint">
-                      Global: {PERMISSION_MODES.find(m => m.value === globalPermissions.mode)?.label}
-                    </p>
-                  )}
-                  <div className="permission-mode-options compact">
-                    {PERMISSION_MODES.map((mode) => {
-                      const isGlobalMode = globalPermissions.mode === mode.value && projectSettingsModal.permissionMode === 'default'
-                      return (
-                        <label key={mode.value} className={`permission-mode-option ${projectSettingsModal.permissionMode === mode.value ? 'selected' : ''} ${isGlobalMode ? 'global' : ''}`}>
-                          <input
-                            type="radio"
-                            name="permissionMode"
-                            value={mode.value}
-                            checked={projectSettingsModal.permissionMode === mode.value}
-                            onChange={(e) => setProjectSettingsModal({ ...projectSettingsModal, permissionMode: e.target.value })}
-                          />
-                          <span className="mode-label">{mode.label}</span>
-                          <span className="mode-desc">{mode.desc}</span>
-                          {isGlobalMode && <span className="global-indicator">G</span>}
-                        </label>
-                      )
-                    })}
-                  </div>
-                </div>
-
-                <div className="permission-quick-actions">
-                  <button className="btn-danger-outline" onClick={handleAllowAll}>
-                    Allow All
-                  </button>
-                  <button className="btn-secondary" onClick={handleClearAll}>
-                    Clear All
-                  </button>
-                </div>
-              </div>
-
-              {/* Backend Settings Section */}
-              <div className="settings-section">
-                <h3>Backend Settings</h3>
-                <p className="form-hint">Override the global default backend for this project.</p>
-
-                <div className="form-group">
-                  <div className="permission-mode-options compact">
-                    <label className={`permission-mode-option ${projectSettingsModal.backend === 'default' ? 'selected' : ''}`}>
-                      <input
-                        type="radio"
-                        name="projectBackend"
-                        value="default"
-                        checked={projectSettingsModal.backend === 'default'}
-                        onChange={(e) => setProjectSettingsModal({ ...projectSettingsModal, backend: e.target.value as 'default' | 'claude' | 'gemini' | 'codex' | 'opencode' | 'aider' })}
-                      />
-                      <span className="mode-label">Use global default</span>
-                      <span className="mode-desc">Uses the backend selected in the main settings.</span>
-                    </label>
-                    <label className={`permission-mode-option ${projectSettingsModal.backend === 'claude' ? 'selected' : ''}`}>
-                      <input
-                        type="radio"
-                        name="projectBackend"
-                        value="claude"
-                        checked={projectSettingsModal.backend === 'claude'}
-                        onChange={(e) => setProjectSettingsModal({ ...projectSettingsModal, backend: e.target.value as 'default' | 'claude' | 'gemini' | 'codex' | 'opencode' | 'aider' })}
-                      />
-                      <span className="mode-label">Claude</span>
-                      <span className="mode-desc">Forces this project to use Claude.</span>
-                    </label>
-                    <label className={`permission-mode-option ${projectSettingsModal.backend === 'gemini' ? 'selected' : ''}`}>
-                      <input
-                        type="radio"
-                        name="projectBackend"
-                        value="gemini"
-                        checked={projectSettingsModal.backend === 'gemini'}
-                        onChange={(e) => setProjectSettingsModal({ ...projectSettingsModal, backend: e.target.value as 'default' | 'claude' | 'gemini' | 'codex' | 'opencode' | 'aider' })}
-                      />
-                      <span className="mode-label">Gemini</span>
-                      <span className="mode-desc">Forces this project to use Gemini.</span>
-                    </label>
-                    <label className={`permission-mode-option ${projectSettingsModal.backend === 'codex' ? 'selected' : ''}`}>
-                      <input
-                        type="radio"
-                        name="projectBackend"
-                        value="codex"
-                        checked={projectSettingsModal.backend === 'codex'}
-                        onChange={(e) => setProjectSettingsModal({ ...projectSettingsModal, backend: e.target.value as 'default' | 'claude' | 'gemini' | 'codex' | 'opencode' | 'aider' })}
-                      />
-                      <span className="mode-label">Codex</span>
-                      <span className="mode-desc">Forces this project to use Codex.</span>
-                    </label>
-                    <label className={`permission-mode-option ${projectSettingsModal.backend === 'opencode' ? 'selected' : ''}`}>
-                      <input
-                        type="radio"
-                        name="projectBackend"
-                        value="opencode"
-                        checked={projectSettingsModal.backend === 'opencode'}
-                        onChange={(e) => setProjectSettingsModal({ ...projectSettingsModal, backend: e.target.value as 'default' | 'claude' | 'gemini' | 'codex' | 'opencode' | 'aider' })}
-                      />
-                      <span className="mode-label">OpenCode</span>
-                      <span className="mode-desc">Forces this project to use OpenCode.</span>
-                    </label>
-                    <label className={`permission-mode-option ${projectSettingsModal.backend === 'aider' ? 'selected' : ''}`}>
-                      <input
-                        type="radio"
-                        name="projectBackend"
-                        value="aider"
-                        checked={projectSettingsModal.backend === 'aider'}
-                        onChange={(e) => setProjectSettingsModal({ ...projectSettingsModal, backend: e.target.value as 'default' | 'claude' | 'gemini' | 'codex' | 'opencode' | 'aider' })}
-                      />
-                      <span className="mode-label">Aider</span>
-                      <span className="mode-desc">Forces this project to use Aider.</span>
-                    </label>
-                  </div>
-                </div>
-              </div>
-
-              {/* Voice Settings Section */}
-              <div className="settings-section">
-                <h3>Voice</h3>
-                <p className="form-hint">Override global TTS voice for this project.</p>
-
-                <div className="form-group">
-                  <label>TTS Voice</label>
-                  {globalVoiceSettings.voice && !projectSettingsModal.ttsVoice && (
-                    <p className="form-hint global-hint">
-                      Global: {installedVoices.find(v => v.key === globalVoiceSettings.voice)?.displayName || globalVoiceSettings.voice}
-                    </p>
-                  )}
-                  <select
-                    className="voice-select"
-                    value={projectSettingsModal.ttsVoice ? `${projectSettingsModal.ttsEngine}:${projectSettingsModal.ttsVoice}` : ''}
-                    onChange={(e) => {
-                      const value = e.target.value
-                      if (!value) {
-                        setProjectSettingsModal({ ...projectSettingsModal, ttsVoice: '', ttsEngine: '' })
-                      } else {
-                        const [engine, ...voiceParts] = value.split(':')
-                        const voice = voiceParts.join(':')  // Handle voice keys that might contain colons
-                        setProjectSettingsModal({
-                          ...projectSettingsModal,
-                          ttsVoice: voice,
-                          ttsEngine: engine as 'piper' | 'xtts'
-                        })
-                      }
-                    }}
-                  >
-                    <option value="">Use global voice</option>
-                    {installedVoices.length > 0 && (
-                      <>
-                        {installedVoices.filter(v => v.source !== 'xtts').length > 0 && (
-                          <optgroup label="Piper Voices">
-                            {installedVoices
-                              .filter(v => v.source !== 'xtts')
-                              .map(v => (
-                                <option key={v.key} value={`piper:${v.key}`}>
-                                  {v.displayName}
-                                  {v.key === globalVoiceSettings.voice && globalVoiceSettings.engine === 'piper' ? ' (global)' : ''}
-                                </option>
-                              ))}
-                          </optgroup>
-                        )}
-                        {installedVoices.filter(v => v.source === 'xtts').length > 0 && (
-                          <optgroup label="XTTS Cloned Voices">
-                            {installedVoices
-                              .filter(v => v.source === 'xtts')
-                              .map(v => (
-                                <option key={v.key} value={`xtts:${v.key}`}>
-                                  {v.displayName}
-                                  {v.key === globalVoiceSettings.voice && globalVoiceSettings.engine === 'xtts' ? ' (global)' : ''}
-                                </option>
-                              ))}
-                          </optgroup>
-                        )}
-                      </>
-                    )}
-                  </select>
-                  {installedVoices.length === 0 && (
-                    <p className="form-hint">No voices installed. Install voices in Settings.</p>
-                  )}
-                </div>
-              </div>
-            </div>
-            <div className="modal-footer">
-              <button className="btn-secondary" onClick={() => setProjectSettingsModal(null)} disabled={projectSettingsModal.apiStatus === 'checking'}>Cancel</button>
-              <button className="btn-primary" onClick={handleSaveProjectSettings} disabled={projectSettingsModal.apiStatus === 'checking'}>
-                {projectSettingsModal.apiStatus === 'checking' ? 'Checking...' : 'Save'}
-              </button>
-            </div>
-          </div>
-        </div>,
-        document.body
+      {/* Project Settings Modal */}
+      {projectSettingsModal && (
+        <ProjectSettingsModal
+          state={projectSettingsModal}
+          globalPermissions={globalPermissions}
+          globalVoiceSettings={globalVoiceSettings}
+          installedVoices={installedVoices}
+          onClose={() => setProjectSettingsModal(null)}
+          onSave={handleSaveProjectSettings}
+          onChange={(updates) => setProjectSettingsModal(prev => prev ? { ...prev, ...updates } : null)}
+          onToggleTool={(tool) => {
+            if (!projectSettingsModal) return
+            const newTools = projectSettingsModal.tools.includes(tool)
+              ? projectSettingsModal.tools.filter(t => t !== tool)
+              : [...projectSettingsModal.tools, tool]
+            setProjectSettingsModal({ ...projectSettingsModal, tools: newTools })
+          }}
+          onAllowAll={() => {
+            if (!projectSettingsModal) return
+            const allTools = COMMON_TOOLS.map(t => t.value)
+            setProjectSettingsModal({ ...projectSettingsModal, tools: allTools, permissionMode: 'bypassPermissions' })
+          }}
+          onClearAll={() => {
+            if (!projectSettingsModal) return
+            setProjectSettingsModal({ ...projectSettingsModal, tools: [], permissionMode: 'default' })
+          }}
+        />
       )}
 
       {/* Extension Browser Modal */}
-      {extensionBrowserModal && ReactDOM.createPortal(
+      {extensionBrowserModal && (
         <ExtensionBrowser
           projectPath={extensionBrowserModal.project.path}
           projectName={extensionBrowserModal.project.name}
           onClose={() => setExtensionBrowserModal(null)}
-        />,
-        document.body
+        />
       )}
 
       {/* CLAUDE.md Editor Modal */}
-      {claudeMdEditorModal && ReactDOM.createPortal(
+      {claudeMdEditorModal && (
         <ClaudeMdEditor
           isOpen={true}
           projectPath={claudeMdEditorModal.project.path}
           projectName={claudeMdEditorModal.project.name}
           onClose={() => setClaudeMdEditorModal(null)}
-        />,
-        document.body
+        />
       )}
 
       {/* Category Context Menu */}
-      {categoryContextMenu && ReactDOM.createPortal(
-        <div
-          className="context-menu"
-          style={{ left: categoryContextMenu.x, top: categoryContextMenu.y }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <button onClick={() => {
-            handleStartCategoryRename({ stopPropagation: () => {} } as React.MouseEvent, categoryContextMenu.category)
+      {categoryContextMenu && (
+        <CategoryContextMenu
+          x={categoryContextMenu.x}
+          y={categoryContextMenu.y}
+          category={categoryContextMenu.category}
+          onRename={() => {
+            handleStartCategoryRename(categoryContextMenu.category)
             setCategoryContextMenu(null)
-          }}>
-            <span className="icon">✏️</span> Rename
-          </button>
-          <div className="context-menu-divider" />
-          <button
-            className="danger"
-            onClick={() => handleDeleteCategory(categoryContextMenu.category.id)}
-          >
-            <span className="icon">🗑</span> Delete Category
-          </button>
-        </div>,
-        document.body
+          }}
+          onDelete={() => {
+            removeCategory(categoryContextMenu.category.id)
+            setCategoryContextMenu(null)
+          }}
+        />
       )}
     </div>
   )
