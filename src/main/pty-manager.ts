@@ -284,13 +284,8 @@ function buildPermissionArgs(backend: string = 'claude', permissionMode?: string
       break
 
     case 'opencode':
-      // OpenCode: --allowedTools (comma-separated, non-interactive mode auto-approves)
-      // See: https://opencode.ai/docs/permissions/
-      if (autoAcceptTools && autoAcceptTools.length > 0) {
-        args.push('--allowedTools', autoAcceptTools.join(','))
-      }
-      // OpenCode permission mode is configured in config file, not CLI flags
-      // In non-interactive mode, all permissions are auto-approved anyway
+      // OpenCode doesn't accept permission flags on the CLI (use config instead).
+      // Ignore auto-accept tools to avoid invalid arguments.
       break
 
     case 'aider':

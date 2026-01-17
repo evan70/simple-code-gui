@@ -16,9 +16,22 @@ declare global {
       getWorkspace: () => Promise<any>
       saveWorkspace: (workspace: any) => Promise<void>
       addProject: () => Promise<string | null>
-      discoverSessions: (projectPath: string) => Promise<any[]>
+      discoverSessions: (projectPath: string, backend?: 'claude' | 'opencode') => Promise<any[]>
       getSettings: () => Promise<{ defaultProjectDir: string; theme: string; autoAcceptTools?: string[]; permissionMode?: string; backend?: string }>
       saveSettings: (settings: { defaultProjectDir: string; theme: string; autoAcceptTools?: string[]; permissionMode?: string; backend?: string }) => Promise<void>
+      voiceGetInstalled?: () => Promise<Array<{ key: string; displayName: string; source: string }>>
+      xttsGetVoices?: () => Promise<Array<{ id: string; name: string }>>
+      voiceGetSettings?: () => Promise<{ ttsVoice?: string; ttsEngine?: string; ttsSpeed?: number; xttsTemperature?: number; xttsTopK?: number; xttsTopP?: number; xttsRepetitionPenalty?: number }>
+      voiceCheckWhisper?: () => Promise<{ installed: boolean; models: string[]; currentModel: string | null }>
+      voiceCheckTTS?: () => Promise<{ installed: boolean; voices: string[]; currentVoice: string | null }>
+      extensionsGetInstalled?: () => Promise<Array<{ id: string; name: string; type: string }>>
+      voiceApplySettings?: (settings: { ttsVoice?: string; ttsEngine?: string; ttsSpeed?: number; xttsTemperature?: number; xttsTopK?: number; xttsTopP?: number; xttsRepetitionPenalty?: number }) => Promise<void>
+      voiceInstallWhisper?: (model: string) => Promise<void>
+      voiceInstallPiper?: () => Promise<void>
+      voiceInstallVoice?: (voice: string) => Promise<void>
+      voiceSpeak?: (text: string) => Promise<{ success: boolean; audioData?: string; error?: string }>
+      xttsSpeak?: (text: string, voiceId: string, lang: string) => Promise<{ success: boolean; audioData?: string; error?: string }>
+      voiceSetVoice?: (settings: { voice: string; engine: string }) => Promise<void>
       selectDirectory: () => Promise<string | null>
       createProject: (name: string, parentDir: string) => Promise<{ success: boolean; path?: string; error?: string }>
       selectExecutable: () => Promise<string | null>
@@ -60,13 +73,15 @@ declare global {
       // Clipboard
       readClipboardImage: () => Promise<{ success: boolean; hasImage?: boolean; path?: string; error?: string }>
       // TTS instructions
-      ttsInstallInstructions?: (projectPath: string) => Promise<{ success: boolean }>
-      ttsRemoveInstructions?: (projectPath: string) => Promise<{ success: boolean }>
+      ttsInstallInstructions?: (projectPath: string) => Promise<{ success: boolean; error?: string }>
+      ttsRemoveInstructions?: (projectPath: string) => Promise<{ success: boolean; error?: string }>
       // Window controls
       windowMinimize: () => void
       windowMaximize: () => void
       windowClose: () => void
       windowIsMaximized: () => Promise<boolean>
+      isDebugMode: () => Promise<boolean>
+      refresh: () => Promise<void>
     }
   }
 }
@@ -205,7 +220,7 @@ function App() {
               let titleToRestore = savedTab.title || `${projectName} - New`
 
               // Get project and determine effective backend for restored tab
-              const projectForTab = workspace.projects?.find(p => p.path === savedTab.projectPath)
+              const projectForTab = workspace.projects?.find((p: { path: string }) => p.path === savedTab.projectPath)
               const savedBackend = savedTab.backend && savedTab.backend !== 'default'
                 ? savedTab.backend
                 : undefined
@@ -219,7 +234,7 @@ function App() {
               if (!sessionIdToRestore && effectiveBackendForTab === 'claude') {
                 let sessionsForProject = sessionsCache.get(savedTab.projectPath)
                 if (!sessionsForProject) {
-                  const list = await window.electronAPI.discoverSessions(savedTab.projectPath)
+                  const list = await window.electronAPI.discoverSessions(savedTab.projectPath, effectiveBackendForTab === 'opencode' ? 'opencode' : 'claude')
                   sessionsForProject = { list, nextIndex: 0 }
                   sessionsCache.set(savedTab.projectPath, sessionsForProject)
                 }
@@ -335,7 +350,8 @@ function App() {
       // Run discovery in parallel for all tabs (async so non-blocking)
       await Promise.all(openTabs.map(async (tab) => {
         try {
-          const sessions = await window.electronAPI.discoverSessions(tab.projectPath)
+          const effectiveBackend = tab.backend === 'opencode' ? 'opencode' : 'claude'
+          const sessions = await window.electronAPI.discoverSessions(tab.projectPath, effectiveBackend)
           if (sessions.length > 0) {
             const mostRecent = sessions[0]
 
@@ -423,7 +439,7 @@ function App() {
     }
   }, [addProject])
 
-  const handleOpenSession = useCallback(async (projectPath: string, sessionId?: string, slug?: string, initialPrompt?: string) => {
+  const handleOpenSession = useCallback(async (projectPath: string, sessionId?: string, slug?: string, initialPrompt?: string, forceNewSession?: boolean) => {
     // Check if this session is already open
     if (sessionId) {
       const existingTab = openTabs.find(tab => tab.sessionId === sessionId)
@@ -438,6 +454,24 @@ function App() {
     const effectiveBackend = project?.backend && project.backend !== 'default'
       ? project.backend
       : settings?.backend || 'claude'
+
+    if (!forceNewSession) {
+      try {
+        const sessions = await window.electronAPI.discoverSessions(projectPath, effectiveBackend === 'opencode' ? 'opencode' : 'claude')
+        if (sessions.length > 0) {
+          const [mostRecent] = sessions
+          const existingTab = openTabs.find(tab => tab.sessionId === mostRecent.sessionId)
+          if (existingTab) {
+            setActiveTab(existingTab.id)
+            return
+          }
+          sessionId = mostRecent.sessionId
+          slug = mostRecent.slug
+        }
+      } catch (e) {
+        console.error('Failed to discover sessions for project:', e)
+      }
+    }
 
     // Split on both / and \ for cross-platform support
     const projectName = projectPath.split(/[/\\]/).pop() || projectPath
@@ -493,7 +527,7 @@ function App() {
 
   const handleProjectCreated = useCallback((projectPath: string, projectName: string) => {
     addProject({ path: projectPath, name: projectName })
-    handleOpenSession(projectPath)
+    handleOpenSession(projectPath, undefined, undefined, undefined, false)
   }, [addProject, handleOpenSession])
 
   const handleInstallNode = useCallback(async () => {
@@ -705,6 +739,7 @@ function App() {
         isOpen={settingsOpen}
         onClose={() => setSettingsOpen(false)}
         onThemeChange={setCurrentTheme}
+        onSaved={(newSettings) => setSettings(newSettings)}
       />
 
       <MakeProjectModal

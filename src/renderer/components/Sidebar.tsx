@@ -344,7 +344,9 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
       })))
     }
     setInstalledVoices(combined)
-    setGlobalVoiceSettings({ voice: voiceSettings?.ttsVoice || '', engine: voiceSettings?.ttsEngine || 'piper' })
+    const voice = (voiceSettings as { ttsVoice?: string }).ttsVoice || ''
+    const engine = (voiceSettings as { ttsEngine?: string }).ttsEngine || 'piper'
+    setGlobalVoiceSettings({ voice, engine })
 
     setProjectSettingsModal({
       project,
@@ -399,7 +401,9 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
       permissionMode: projectSettingsModal.permissionMode !== 'default' ? projectSettingsModal.permissionMode : undefined,
       ttsVoice: projectSettingsModal.ttsVoice || undefined,
       ttsEngine: projectSettingsModal.ttsEngine || undefined,
-      backend: projectSettingsModal.backend !== 'default' ? projectSettingsModal.backend : undefined
+      backend: (projectSettingsModal.backend !== 'default' && projectSettingsModal.backend !== 'aider')
+        ? projectSettingsModal.backend
+        : undefined
     })
 
     setProjectSettingsModal(null)
@@ -437,7 +441,9 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
     const loadSessions = async () => {
       if (expandedProject) {
         try {
-          const projectSessions = await window.electronAPI.discoverSessions(expandedProject)
+          const project = projects.find(item => item.path === expandedProject)
+          const backend = project?.backend === 'opencode' ? 'opencode' : 'claude'
+          const projectSessions = await window.electronAPI.discoverSessions(expandedProject, backend)
           setSessions((prev) => ({ ...prev, [expandedProject]: projectSessions }))
         } catch (e) {
           console.error('Failed to discover sessions:', e)
@@ -445,7 +451,7 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
       }
     }
     loadSessions()
-  }, [expandedProject])
+  }, [expandedProject, projects])
 
   const toggleProject = (e: React.MouseEvent, path: string) => {
     e.stopPropagation()
@@ -454,15 +460,20 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
 
   const openMostRecentSession = async (projectPath: string) => {
     const existingTab = openTabs.find(tab => tab.projectPath === projectPath)
+    const project = projects.find(item => item.path === projectPath)
+    const effectiveBackend = project?.backend && project.backend !== 'default'
+      ? project.backend
+      : 'claude'
     if (existingTab) {
       onSwitchToTab(existingTab.id)
       return
     }
 
+    const backend = effectiveBackend === 'opencode' ? 'opencode' : 'claude'
     let projectSessions = sessions[projectPath]
     if (!projectSessions) {
       try {
-        projectSessions = await window.electronAPI.discoverSessions(projectPath)
+        projectSessions = await window.electronAPI.discoverSessions(projectPath, backend)
         setSessions((prev) => ({ ...prev, [projectPath]: projectSessions }))
       } catch (e) {
         console.error('Failed to discover sessions:', e)
@@ -474,7 +485,7 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
       const mostRecent = projectSessions[0]
       onOpenSession(projectPath, mostRecent.sessionId, mostRecent.slug)
     } else {
-      onOpenSession(projectPath)
+      onOpenSession(projectPath, undefined, undefined, undefined, false)
     }
   }
 
@@ -499,7 +510,7 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
           onOpenSession(project.path, sessionId, slug)
         } else if (isNewSession) {
           // Explicit "New Session" click - always create a new session
-          onOpenSession(project.path)
+          onOpenSession(project.path, undefined, undefined, undefined, true)
         } else {
           openMostRecentSession(project.path)
         }
@@ -638,7 +649,7 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
         isExpanded={beadsExpanded}
         onToggle={() => setBeadsExpanded(!beadsExpanded)}
         onStartTaskInNewTab={(prompt) => {
-          if (beadsProjectPath) onOpenSession(beadsProjectPath, undefined, undefined, prompt)
+          if (beadsProjectPath) onOpenSession(beadsProjectPath, undefined, undefined, prompt, true)
         }}
         onSendToCurrentTab={(prompt) => {
           if (focusedTabPtyId) {

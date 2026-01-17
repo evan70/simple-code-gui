@@ -19,7 +19,7 @@ export interface ElectronAPI {
   addProject: () => Promise<string | null>
 
   // Sessions
-  discoverSessions: (projectPath: string) => Promise<any[]>
+  discoverSessions: (projectPath: string, backend?: 'claude' | 'opencode') => Promise<any[]>
 
   // Settings
   getSettings: () => Promise<Settings>
@@ -184,6 +184,7 @@ export interface ElectronAPI {
   // App utilities
   isDebugMode: () => Promise<boolean>
   refresh: () => Promise<void>
+  openExternal: (url: string) => Promise<void>
 
   // Custom commands
   commandsSave: (name: string, content: string, projectPath: string | null) => Promise<{ success: boolean; path?: string; error?: string }>
@@ -285,7 +286,7 @@ const api: ElectronAPI = {
   addProject: () => ipcRenderer.invoke('workspace:addProject'),
 
   // Session discovery
-  discoverSessions: (projectPath) => ipcRenderer.invoke('sessions:discover', projectPath),
+  discoverSessions: (projectPath, backend) => ipcRenderer.invoke('sessions:discover', projectPath, backend),
 
   // Settings
   getSettings: () => ipcRenderer.invoke('settings:get'),
@@ -453,6 +454,7 @@ const api: ElectronAPI = {
   // App utilities
   isDebugMode: () => ipcRenderer.invoke('app:isDebugMode'),
   refresh: () => ipcRenderer.invoke('app:refresh'),
+  openExternal: (url) => ipcRenderer.invoke('app:openExternal', url),
 
   // Custom commands
   commandsSave: (name, content, projectPath) => ipcRenderer.invoke('commands:save', { name, content, projectPath }),

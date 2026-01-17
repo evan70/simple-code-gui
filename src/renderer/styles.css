@@ -1051,7 +1051,7 @@ html, body, #root {
   flex: 1;
   position: relative;
   overflow: hidden;
-  background: var(--bg-base);
+  background: var(--bg-elevated);
   /* Subtle inner shadow for depth */
   box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.3);
 }
@@ -1061,7 +1061,7 @@ html, body, #root {
   flex: 1;
   display: grid;
   gap: 2px;
-  background: var(--bg-base);
+  background: var(--bg-elevated);
   padding: 2px;
   overflow: hidden;
 }
@@ -1565,11 +1565,28 @@ html, body, #root {
 
 .modal-footer {
   display: flex;
-  justify-content: flex-end;
+  justify-content: space-between;
+  align-items: center;
   gap: var(--space-sm);
   padding: var(--space-lg) var(--space-xl);
   border-top: 1px solid var(--border-subtle);
   flex-shrink: 0;
+}
+
+.modal-footer-buttons {
+  display: flex;
+  gap: var(--space-sm);
+}
+
+.kofi-link {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  text-decoration: none;
+  transition: color var(--transition-fast);
+}
+
+.kofi-link:hover {
+  color: var(--accent);
 }
 
 /* ============================================

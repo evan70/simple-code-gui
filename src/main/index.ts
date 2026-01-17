@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, dialog, session } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, session, shell } from 'electron'
 import { join } from 'path'
 import { mkdirSync, existsSync, appendFileSync } from 'fs'
 import { spawn } from 'child_process'
@@ -260,7 +260,7 @@ ipcMain.handle('workspace:addProject', async () => {
 })
 
 // Session discovery
-ipcMain.handle('sessions:discover', (_, projectPath: string) => discoverSessions(projectPath))
+ipcMain.handle('sessions:discover', (_, projectPath: string, backend?: 'claude' | 'opencode') => discoverSessions(projectPath, backend))
 
 // PTY management
 ipcMain.handle('pty:spawn', (_, { cwd, sessionId, model, backend }: { cwd: string; sessionId?: string; model?: string; backend?: string }) => {
@@ -373,6 +373,7 @@ ipcMain.handle('settings:get', () => sessionStore.getSettings())
 ipcMain.handle('settings:save', (_, settings) => sessionStore.saveSettings(settings))
 ipcMain.handle('app:isDebugMode', () => IS_DEBUG_MODE)
 ipcMain.handle('app:refresh', () => mainWindow?.webContents.reload())
+ipcMain.handle('app:openExternal', (_, url: string) => shell.openExternal(url))
 
 ipcMain.handle('settings:selectDirectory', async () => {
   const result = await dialog.showOpenDialog(mainWindow!, {

@@ -4,6 +4,8 @@ export interface ClaudeSession {
   sessionId: string
   slug: string
   lastModified: number
+  cwd?: string
+  fileSize?: number
 }
 
 export interface OpenTab {
@@ -11,6 +13,7 @@ export interface OpenTab {
   projectPath: string
   sessionId?: string
   ptyId?: string
+  backend?: 'claude' | 'gemini' | 'codex' | 'opencode' | 'aider'
 }
 
 export interface SidebarProps {
@@ -20,7 +23,7 @@ export interface SidebarProps {
   lastFocusedTabId: string | null
   onAddProject: () => void
   onRemoveProject: (path: string) => void
-  onOpenSession: (projectPath: string, sessionId?: string, slug?: string, initialPrompt?: string) => void
+  onOpenSession: (projectPath: string, sessionId?: string, slug?: string, initialPrompt?: string, forceNewSession?: boolean) => void
   onSwitchToTab: (tabId: string) => void
   onOpenSettings: () => void
   onOpenMakeProject: () => void

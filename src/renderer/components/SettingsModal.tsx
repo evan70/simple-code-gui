@@ -67,9 +67,10 @@ interface SettingsModalProps {
   isOpen: boolean
   onClose: () => void
   onThemeChange: (theme: Theme) => void
+  onSaved?: (settings: { defaultProjectDir: string; theme: string; autoAcceptTools?: string[]; permissionMode?: string; backend?: string }) => void
 }
 
-export function SettingsModal({ isOpen, onClose, onThemeChange }: SettingsModalProps) {
+export function SettingsModal({ isOpen, onClose, onThemeChange, onSaved }: SettingsModalProps) {
   const [defaultProjectDir, setDefaultProjectDir] = useState('')
   const [selectedTheme, setSelectedTheme] = useState('default')
   const [autoAcceptTools, setAutoAcceptTools] = useState<string[]>([])
@@ -139,10 +140,10 @@ export function SettingsModal({ isOpen, onClose, onThemeChange }: SettingsModalP
       })
 
       // Load voice settings (active voice)
-      window.electronAPI.voiceGetSettings?.().then((voiceSettings) => {
+      window.electronAPI.voiceGetSettings?.().then((voiceSettings: { ttsVoice?: string; ttsEngine?: string; ttsSpeed?: number; xttsTemperature?: number; xttsTopK?: number; xttsTopP?: number; xttsRepetitionPenalty?: number }) => {
         if (voiceSettings) {
           setSelectedVoice(voiceSettings.ttsVoice || 'en_US-libritts_r-medium')
-          setSelectedEngine(voiceSettings.ttsEngine || 'piper')
+          setSelectedEngine((voiceSettings.ttsEngine as 'piper' | 'xtts') || 'piper')
           setTtsSpeed(voiceSettings.ttsSpeed || 1.0)
           // XTTS quality settings
           setXttsTemperature(voiceSettings.xttsTemperature ?? 0.65)
@@ -188,7 +189,8 @@ export function SettingsModal({ isOpen, onClose, onThemeChange }: SettingsModalP
   }
 
   const handleSave = async () => {
-    await window.electronAPI.saveSettings({ defaultProjectDir, theme: selectedTheme, autoAcceptTools, permissionMode, backend })
+    const newSettings = { defaultProjectDir, theme: selectedTheme, autoAcceptTools, permissionMode, backend }
+    await window.electronAPI.saveSettings(newSettings)
     // Save voice settings including XTTS quality settings
     await window.electronAPI.voiceApplySettings?.({
       ttsVoice: selectedVoice,
@@ -199,6 +201,7 @@ export function SettingsModal({ isOpen, onClose, onThemeChange }: SettingsModalP
       xttsTopP,
       xttsRepetitionPenalty
     })
+    onSaved?.(newSettings)
     onClose()
   }
 
@@ -799,8 +802,22 @@ export function SettingsModal({ isOpen, onClose, onThemeChange }: SettingsModalP
           </div>
         </div>
         <div className="modal-footer">
-          <button className="btn-secondary" onClick={onClose}>Cancel</button>
-          <button className="btn-primary" onClick={handleSave}>Save</button>
+          <a
+            href="https://ko-fi.com/donutsdelivery"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="kofi-link"
+            onClick={(e) => {
+              e.preventDefault()
+              window.electronAPI.openExternal?.('https://ko-fi.com/donutsdelivery')
+            }}
+          >
+            ♥ Support on Ko-fi
+          </a>
+          <div className="modal-footer-buttons">
+            <button className="btn-secondary" onClick={onClose}>Cancel</button>
+            <button className="btn-primary" onClick={handleSave}>Save</button>
+          </div>
         </div>
       </div>
 

@@ -14,11 +14,12 @@ function serveWhisperFiles() {
           if (fs.existsSync(filePath)) {
             const content = fs.readFileSync(filePath)
             const ext = filePath.split('.').pop()
-            const mimeTypes = {
+            const mimeTypes: Record<string, string> = {
               'js': 'application/javascript',
               'wasm': 'application/wasm'
             }
-            res.setHeader('Content-Type', mimeTypes[ext] || 'application/octet-stream')
+            const mimeType = ext ? mimeTypes[ext] : undefined
+            res.setHeader('Content-Type', mimeType || 'application/octet-stream')
             res.end(content)
             return
           }
@@ -35,7 +36,7 @@ export default defineConfig({
     build: {
       outDir: 'dist/main',
       rollupOptions: {
-        external: ['node-pty']
+        external: ['node-pty', 'better-sqlite3']
       }
     }
   },
