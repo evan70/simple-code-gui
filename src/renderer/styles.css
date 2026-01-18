@@ -943,13 +943,16 @@ html, body, #root {
   background: var(--bg-elevated);
   border-bottom: 1px solid var(--border-subtle);
   overflow-x: auto;
+  overflow-y: hidden;
   min-height: 44px;
   padding: 6px 8px 0;
   gap: 4px;
+  scrollbar-width: none; /* Firefox */
+  -ms-overflow-style: none; /* IE/Edge */
 }
 
 .tabs-bar::-webkit-scrollbar {
-  height: 0;
+  display: none;
 }
 
 .tab {
