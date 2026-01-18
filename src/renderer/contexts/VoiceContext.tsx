@@ -300,6 +300,14 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       .replace(/\s+/g, ' ') // Collapse multiple spaces
       .trim()
 
+    // Debug logging
+    console.log('[TTS Debug] speakText called:', {
+      originalLength: text.length,
+      cleanedLength: cleanText.length,
+      original: text.substring(0, 100),
+      cleaned: cleanText.substring(0, 100)
+    })
+
     if (cleanText.length < 3) return // Skip very short text
 
     // If skipOnNew is enabled, clear queue and stop current audio

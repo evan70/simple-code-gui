@@ -17,6 +17,16 @@ const piperDir = path.join(depsDir, 'piper')
 const piperVoicesDir = path.join(piperDir, 'voices')
 const customVoicesDir = path.join(piperDir, 'custom-voices')
 const voiceSettingsPath = path.join(app.getPath('userData'), 'voice-settings.json')
+const ttsDebugLogPath = path.join(app.getPath('userData'), 'tts-debug.log')
+
+// TTS Debug logging
+function logTTS(message: string, data?: unknown) {
+  const timestamp = new Date().toISOString()
+  const logLine = data
+    ? `[${timestamp}] ${message}: ${JSON.stringify(data, null, 2)}\n`
+    : `[${timestamp}] ${message}\n`
+  fs.appendFileSync(ttsDebugLogPath, logLine)
+}
 
 // Hugging Face API for voice catalog
 const VOICES_CATALOG_URL = 'https://huggingface.co/rhasspy/piper-voices/resolve/main/voices.json'
@@ -597,8 +607,17 @@ class VoiceManager {
   // Speak text using the current TTS engine
   // Returns the audio data as base64
   async speak(text: string): Promise<{ success: boolean; audioData?: string; error?: string }> {
+    logTTS('speak() called', {
+      textLength: text.length,
+      text: text.substring(0, 200) + (text.length > 200 ? '...' : ''),
+      engine: this.currentTTSEngine,
+      voice: this.currentTTSVoice,
+      speed: this.currentTTSSpeed
+    })
+
     // Route to XTTS if that's the current engine AND we have an XTTS voice selected
     if (this.currentTTSEngine === 'xtts' && this.currentXTTSVoice) {
+      logTTS('Routing to XTTS')
       return xttsManager.speak(text, this.currentXTTSVoice, undefined, {
         temperature: this.xttsTemperature,
         speed: this.currentTTSSpeed,
@@ -611,6 +630,7 @@ class VoiceManager {
     // Use Piper TTS
     const piperPath = this.getPiperBinaryPath()
     if (!piperPath) {
+      logTTS('ERROR: Piper not installed')
       return { success: false, error: 'Piper not installed' }
     }
 
@@ -646,29 +666,51 @@ class VoiceManager {
         '--length_scale', lengthScale.toFixed(2)
       ]
 
+      logTTS('Spawning Piper', {
+        piperPath,
+        args,
+        lengthScale,
+        model: voicePaths.model,
+        outputPath
+      })
+
       return new Promise((resolve) => {
         const proc = spawn(piperPath, args)
         this.speakingProcess = proc
 
+        let stderrOutput = ''
+        proc.stderr?.on('data', (data) => {
+          stderrOutput += data.toString()
+        })
+
+        logTTS('Writing text to Piper stdin', { textBytes: Buffer.byteLength(text, 'utf8') })
         proc.stdin.write(text)
         proc.stdin.end()
 
         proc.on('close', (code) => {
           this.speakingProcess = null
+          logTTS('Piper process closed', { code, stderrOutput: stderrOutput.substring(0, 500) })
+
           if (code === 0 && fs.existsSync(outputPath)) {
             // Read file and return as base64
             const audioBuffer = fs.readFileSync(outputPath)
             const audioData = audioBuffer.toString('base64')
+            logTTS('Audio generated successfully', {
+              audioSize: audioBuffer.length,
+              base64Length: audioData.length
+            })
             // Clean up temp file
             fs.unlinkSync(outputPath)
             resolve({ success: true, audioData })
           } else {
+            logTTS('ERROR: Piper failed', { code, stderrOutput })
             resolve({ success: false, error: `Piper exited with code ${code}` })
           }
         })
 
         proc.on('error', (err) => {
           this.speakingProcess = null
+          logTTS('ERROR: Piper spawn error', { error: err.message })
           resolve({ success: false, error: err.message })
         })
       })
