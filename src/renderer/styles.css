@@ -370,6 +370,9 @@ html, body, #root {
   cursor: pointer;
   font-size: 10px;
   color: var(--text-tertiary);
+  background: none;
+  border: none;
+  padding: 0;
   transition: all var(--transition-fast);
   flex-shrink: 0;
 }
@@ -3353,6 +3356,9 @@ html, body, #root {
   font-size: 10px;
   color: var(--text-tertiary);
   width: 16px;
+  background: none;
+  border: none;
+  padding: 0;
 }
 
 .beads-icon {
