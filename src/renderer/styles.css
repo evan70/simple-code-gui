@@ -1195,7 +1195,7 @@ html, body, #root {
 }
 
 .tile-edge-left {
-  left: -4px;
+  left: -6px;
   top: 0;
   width: 12px;
   height: 100%;
@@ -1203,7 +1203,7 @@ html, body, #root {
 }
 
 .tile-edge-right {
-  right: -4px;
+  right: -6px;
   top: 0;
   width: 12px;
   height: 100%;
@@ -1211,7 +1211,7 @@ html, body, #root {
 }
 
 .tile-edge-top {
-  top: -4px;
+  top: -6px;
   left: 0;
   width: 100%;
   height: 12px;
@@ -1219,7 +1219,7 @@ html, body, #root {
 }
 
 .tile-edge-bottom {
-  bottom: -4px;
+  bottom: -6px;
   left: 0;
   width: 100%;
   height: 12px;
