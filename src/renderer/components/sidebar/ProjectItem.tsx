@@ -31,7 +31,7 @@ interface ProjectItemProps {
   onRenameKeyDown: (e: React.KeyboardEvent) => void
 }
 
-export function ProjectItem({
+export const ProjectItem = React.memo(function ProjectItem({
   project,
   isExpanded,
   isFocused,
@@ -75,13 +75,15 @@ export function ProjectItem({
         onClick={() => onOpenSession()}
         onContextMenu={onContextMenu}
       >
-        <span
+        <button
           className="expand-arrow"
           onClick={onToggleExpand}
           title="Show all sessions"
+          aria-expanded={isExpanded}
+          aria-label={`${isExpanded ? 'Collapse' : 'Expand'} sessions for ${project.name}`}
         >
           {isExpanded ? '▼' : '▶'}
-        </span>
+        </button>
         <ProjectIcon projectName={project.name} size={28} />
         <div style={{ flex: 1, minWidth: 0 }}>
           {isEditing ? (
@@ -174,4 +176,4 @@ export function ProjectItem({
       )}
     </div>
   )
-}
+})

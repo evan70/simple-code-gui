@@ -1,6 +1,6 @@
-import { app, BrowserWindow, ipcMain, dialog, session, shell } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, session, shell, Menu, crashReporter } from 'electron'
 import { join } from 'path'
-import { mkdirSync, existsSync, appendFileSync } from 'fs'
+import { mkdirSync, existsSync, appendFileSync, statSync, unlinkSync } from 'fs'
 import { spawn } from 'child_process'
 
 // Set app name and WM_CLASS for proper Linux taskbar integration
@@ -13,6 +13,15 @@ if (process.platform === 'linux') {
 // Enable GPU acceleration
 app.commandLine.appendSwitch('enable-gpu-rasterization')
 app.commandLine.appendSwitch('enable-zero-copy')
+
+// Configure crash reporter for packaged builds
+if (app.isPackaged) {
+  crashReporter.start({
+    productName: 'Simple Code GUI',
+    submitURL: '', // Set to crash collection server URL when available
+    uploadToServer: false // Enable when submitURL is configured
+  })
+}
 
 import { PtyManager } from './pty-manager'
 import { SessionStore } from './session-store'
@@ -29,6 +38,7 @@ import {
   registerWindowHandlers,
   registerGsdHandlers,
 } from './ipc'
+import { API_DUPLICATE_WINDOW_MS, API_SESSION_TIMEOUT_MS } from '../constants'
 
 const IS_DEBUG_MODE = process.argv.includes('--debug') || process.env.DEBUG_MODE === '1'
 
@@ -80,12 +90,23 @@ apiServerManager.setSessionModeGetter((projectPath) => {
 })
 
 const recentApiPrompts = new Map<string, { prompt: string; timestamp: number }>()
-const DUPLICATE_WINDOW_MS = 2000
+
+function cleanupStaleApiPrompts(now: number): void {
+  for (const [key, value] of recentApiPrompts) {
+    if (now - value.timestamp >= API_DUPLICATE_WINDOW_MS) {
+      recentApiPrompts.delete(key)
+    }
+  }
+}
 
 apiServerManager.setPromptHandler(async (projectPath, prompt, sessionMode): Promise<PromptResult> => {
   const now = Date.now()
+
+  // Clean up stale entries to prevent memory growth
+  cleanupStaleApiPrompts(now)
+
   const recent = recentApiPrompts.get(projectPath)
-  if (recent && recent.prompt === prompt && now - recent.timestamp < DUPLICATE_WINDOW_MS) {
+  if (recent && recent.prompt === prompt && now - recent.timestamp < API_DUPLICATE_WINDOW_MS) {
     console.log('API: Ignoring duplicate prompt for', projectPath)
     return { success: true, message: 'Duplicate prompt ignored' }
   }
@@ -115,9 +136,121 @@ apiServerManager.setPromptHandler(async (projectPath, prompt, sessionMode): Prom
         pendingApiPrompts.delete(projectPath)
         resolve({ success: false, error: 'Timeout waiting for session to be created' })
       }
-    }, 30000)
+    }, API_SESSION_TIMEOUT_MS)
   })
 })
+
+function createApplicationMenu() {
+  const isMac = process.platform === 'darwin'
+
+  const template: Electron.MenuItemConstructorOptions[] = [
+    // App menu (macOS only)
+    ...(isMac ? [{
+      label: app.name,
+      submenu: [
+        { role: 'about' as const },
+        { type: 'separator' as const },
+        { role: 'services' as const },
+        { type: 'separator' as const },
+        { role: 'hide' as const },
+        { role: 'hideOthers' as const },
+        { role: 'unhide' as const },
+        { type: 'separator' as const },
+        { role: 'quit' as const }
+      ]
+    }] : []),
+    // File menu
+    {
+      label: 'File',
+      submenu: [
+        {
+          label: 'Open Project...',
+          accelerator: isMac ? 'Cmd+O' : 'Ctrl+O',
+          click: async () => {
+            const result = await dialog.showOpenDialog(mainWindow!, {
+              properties: ['openDirectory'],
+              title: 'Select Project Folder'
+            })
+            if (!result.canceled && result.filePaths[0]) {
+              mainWindow?.webContents.send('menu:open-project', result.filePaths[0])
+            }
+          }
+        },
+        { type: 'separator' as const },
+        isMac ? { role: 'close' as const } : { role: 'quit' as const }
+      ]
+    },
+    // Edit menu
+    {
+      label: 'Edit',
+      submenu: [
+        { role: 'undo' as const },
+        { role: 'redo' as const },
+        { type: 'separator' as const },
+        { role: 'cut' as const },
+        { role: 'copy' as const },
+        { role: 'paste' as const },
+        ...(isMac ? [
+          { role: 'pasteAndMatchStyle' as const },
+          { role: 'delete' as const },
+          { role: 'selectAll' as const }
+        ] : [
+          { role: 'delete' as const },
+          { type: 'separator' as const },
+          { role: 'selectAll' as const }
+        ])
+      ]
+    },
+    // View menu
+    {
+      label: 'View',
+      submenu: [
+        { role: 'reload' as const },
+        { role: 'forceReload' as const },
+        ...(IS_DEBUG_MODE ? [{ role: 'toggleDevTools' as const }] : []),
+        { type: 'separator' as const },
+        { role: 'resetZoom' as const },
+        { role: 'zoomIn' as const },
+        { role: 'zoomOut' as const },
+        { type: 'separator' as const },
+        { role: 'togglefullscreen' as const }
+      ]
+    },
+    // Window menu
+    {
+      label: 'Window',
+      submenu: [
+        { role: 'minimize' as const },
+        { role: 'zoom' as const },
+        ...(isMac ? [
+          { type: 'separator' as const },
+          { role: 'front' as const },
+          { type: 'separator' as const },
+          { role: 'window' as const }
+        ] : [
+          { role: 'close' as const }
+        ])
+      ]
+    },
+    // Help menu
+    {
+      label: 'Help',
+      submenu: [
+        {
+          label: 'Documentation',
+          click: () => shell.openExternal('https://github.com/anthropics/claude-code')
+        },
+        {
+          label: 'Report Issue',
+          click: () => shell.openExternal('https://github.com/anthropics/claude-code/issues')
+        }
+      ]
+    }
+  ]
+
+  const menu = Menu.buildFromTemplate(template)
+  Menu.setApplicationMenu(menu)
+}
 
 function createWindow() {
   const bounds = sessionStore.getWindowBounds()
@@ -152,7 +285,7 @@ function createWindow() {
   }
 
   mainWindow.webContents.on('before-input-event', (event, input) => {
-    if (input.key === 'F12') mainWindow?.webContents.toggleDevTools()
+    if (input.key === 'F12' && IS_DEBUG_MODE) mainWindow?.webContents.toggleDevTools()
   })
 
   mainWindow.webContents.on('will-navigate', (event, url) => {
@@ -181,28 +314,32 @@ app.whenReady().then(() => {
   const newWorkspace = join(newConfigDir, 'workspace.json')
 
   if (existsSync(oldWorkspace)) {
-    const { statSync, copyFileSync } = require('fs')
-    const oldSize = statSync(oldWorkspace).size
-    let shouldMigrate = false
+    try {
+      const { statSync, copyFileSync } = require('fs')
+      const oldSize = statSync(oldWorkspace).size
+      let shouldMigrate = false
 
-    if (!existsSync(newWorkspace)) {
-      shouldMigrate = true
-    } else {
-      const newSize = statSync(newWorkspace).size
-      if (oldSize > 500 && newSize < 500) shouldMigrate = true
-    }
-
-    if (shouldMigrate) {
-      console.log('Migrating workspace from simple-claude-gui to simple-code-gui...')
-      mkdirSync(newConfigDir, { recursive: true })
-      copyFileSync(oldWorkspace, newWorkspace)
-
-      const oldVoice = join(app.getPath('appData'), 'simple-claude-gui', 'voice-settings.json')
-      const newVoice = join(app.getPath('userData'), 'voice-settings.json')
-      if (existsSync(oldVoice) && !existsSync(newVoice)) {
-        copyFileSync(oldVoice, newVoice)
+      if (!existsSync(newWorkspace)) {
+        shouldMigrate = true
+      } else {
+        const newSize = statSync(newWorkspace).size
+        if (oldSize > 500 && newSize < 500) shouldMigrate = true
       }
-      console.log('Migration complete')
+
+      if (shouldMigrate) {
+        console.log('Migrating workspace from simple-claude-gui to simple-code-gui...')
+        mkdirSync(newConfigDir, { recursive: true })
+        copyFileSync(oldWorkspace, newWorkspace)
+
+        const oldVoice = join(app.getPath('appData'), 'simple-claude-gui', 'voice-settings.json')
+        const newVoice = join(app.getPath('userData'), 'voice-settings.json')
+        if (existsSync(oldVoice) && !existsSync(newVoice)) {
+          copyFileSync(oldVoice, newVoice)
+        }
+        console.log('Migration complete')
+      }
+    } catch (err) {
+      console.error('Workspace migration failed, continuing with empty workspace:', err)
     }
   }
 
@@ -210,17 +347,26 @@ app.whenReady().then(() => {
   const portableDirs = getPortableBinDirs()
   setPortableBinDirs(portableDirs)
 
-  // Enable Cross-Origin Isolation for SharedArrayBuffer
+  // Enable Cross-Origin Isolation for SharedArrayBuffer and configure CSP
   session.defaultSession.webRequest.onHeadersReceived((details, callback) => {
     callback({
       responseHeaders: {
         ...details.responseHeaders,
         'Cross-Origin-Opener-Policy': ['same-origin'],
-        'Cross-Origin-Embedder-Policy': ['require-corp']
+        'Cross-Origin-Embedder-Policy': ['require-corp'],
+        'Content-Security-Policy': [
+          "default-src 'self'; " +
+          "script-src 'self' 'wasm-unsafe-eval'; " +
+          "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
+          "font-src 'self' https://fonts.gstatic.com; " +
+          "connect-src 'self' https://fonts.googleapis.com https://fonts.gstatic.com; " +
+          "img-src 'self' data: blob:"
+        ]
       }
     })
   })
 
+  createApplicationMenu()
   createWindow()
   if (mainWindow) initUpdater(mainWindow)
 
@@ -290,11 +436,19 @@ ipcMain.handle('pty:spawn', (_, { cwd, sessionId, model, backend }: { cwd: strin
 
     ptyManager.onData(id, (data) => {
       maybeRespondToCursorPositionRequest(id, data)
-      mainWindow?.webContents.send(`pty:data:${id}`, data)
+      try {
+        mainWindow?.webContents.send(`pty:data:${id}`, data)
+      } catch (e) {
+        console.error('IPC send failed', e)
+      }
     })
 
     ptyManager.onExit(id, (code) => {
-      mainWindow?.webContents.send(`pty:exit:${id}`, code)
+      try {
+        mainWindow?.webContents.send(`pty:exit:${id}`, code)
+      } catch (e) {
+        console.error('IPC send failed', e)
+      }
       ptyToProject.delete(id)
       ptyToBackend.delete(id)
       autoCloseSessions.delete(id)
@@ -356,9 +510,22 @@ ipcMain.handle('pty:set-backend', async (_, { id: oldId, backend: newBackend }: 
   mainWindow?.webContents.send('pty:recreated', { oldId, newId, backend: newBackend })
 })
 
-// Debug logging
+// Debug logging - only enabled in debug mode with 10MB size limit
 const debugLogPath = '/tmp/tts-debug.log'
-ipcMain.on('debug:log', (_, message: string) => appendFileSync(debugLogPath, `${new Date().toISOString()} ${message}\n`))
+const DEBUG_LOG_MAX_SIZE = 10 * 1024 * 1024 // 10MB
+ipcMain.on('debug:log', (_, message: string) => {
+  if (!IS_DEBUG_MODE) return
+  try {
+    // Check file size and truncate if too large
+    if (existsSync(debugLogPath)) {
+      const stats = statSync(debugLogPath)
+      if (stats.size > DEBUG_LOG_MAX_SIZE) {
+        unlinkSync(debugLogPath)
+      }
+    }
+    appendFileSync(debugLogPath, `${new Date().toISOString()} ${message}\n`)
+  } catch { /* ignore logging errors */ }
+})
 
 // API Server management
 ipcMain.handle('api:start', (_, { projectPath, port }: { projectPath: string; port: number }) => apiServerManager.start(projectPath, port))
@@ -408,6 +575,7 @@ ipcMain.handle('executable:select', async () => {
 ipcMain.handle('executable:run', (_, { executable, cwd }: { executable: string; cwd: string }) => {
   try {
     const child = spawn(executable, [], { cwd, detached: true, stdio: 'ignore' })
+    child.on('error', (e) => console.error('Exec failed', e))
     child.unref()
     return { success: true }
   } catch (e) {

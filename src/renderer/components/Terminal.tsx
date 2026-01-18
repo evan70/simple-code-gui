@@ -11,19 +11,39 @@ import { resolveBackendCommand } from '../utils/backendCommands'
 // Global buffer to persist terminal data across HMR remounts
 // Use window to persist across module re-execution during HMR
 const BUFFER_KEY = '__TERMINAL_BUFFERS__'
+const ERROR_HANDLER_KEY = '__XTERM_ERROR_HANDLER__'
 const MAX_BUFFER_CHUNKS = 1000 // Limit buffer size to prevent memory issues and GC pauses
+
+// Type-safe window extension for HMR globals
+interface TerminalGlobals {
+  [BUFFER_KEY]?: Map<string, string[]>
+  [ERROR_HANDLER_KEY]?: boolean
+}
 
 // Get or create the global buffer map (survives HMR)
 function getTerminalBuffers(): Map<string, string[]> {
-  if (!(window as any)[BUFFER_KEY]) {
-    (window as any)[BUFFER_KEY] = new Map<string, string[]>()
+  const win = window as typeof window & TerminalGlobals
+  if (!win[BUFFER_KEY]) {
+    win[BUFFER_KEY] = new Map<string, string[]>()
   }
-  return (window as any)[BUFFER_KEY]
+  return win[BUFFER_KEY]
 }
 
 // Clear buffer for a specific terminal (call when tab is closed)
 export function clearTerminalBuffer(ptyId: string) {
   getTerminalBuffers().delete(ptyId)
+}
+
+// Clean up orphaned buffers (for PTY IDs that no longer have active tabs)
+// Call this after HMR recovery or tab restoration to prevent unbounded memory growth
+export function cleanupOrphanedBuffers(activeIds: string[]) {
+  const buffers = getTerminalBuffers()
+  const activeSet = new Set(activeIds)
+  for (const id of buffers.keys()) {
+    if (!activeSet.has(id)) {
+      buffers.delete(id)
+    }
+  }
 }
 
 // Debug flag - set to true to log scroll events
@@ -42,9 +62,11 @@ const AUTOWORK_MARKER_REGEX = /===AUTOWORK_CONTINUE===/g
 
 // Suppress known xterm WebGL race condition errors
 // These errors occur during WebGL addon initialization/disposal but are harmless
-if (typeof window !== 'undefined' && !(window as any).__XTERM_ERROR_HANDLER__) {
-  (window as any).__XTERM_ERROR_HANDLER__ = true
-  window.addEventListener('error', (event) => {
+if (typeof window !== 'undefined') {
+  const win = window as typeof window & TerminalGlobals
+  if (!win[ERROR_HANDLER_KEY]) {
+    win[ERROR_HANDLER_KEY] = true
+    window.addEventListener('error', (event) => {
     // Suppress dimensions error during WebGL init (viewport sync before render service ready)
     if (event.message?.includes("Cannot read properties of undefined (reading 'dimensions')") &&
         event.filename?.includes('xterm')) {
@@ -58,6 +80,7 @@ if (typeof window !== 'undefined' && !(window as any).__XTERM_ERROR_HANDLER__) {
       return true
     }
   })
+  }
 }
 
 const formatPathForBackend = (path: string, backend?: string): string => {
@@ -451,7 +474,7 @@ export function Terminal({ ptyId, isActive, theme, onFocus, projectPath, backend
     }
 
     // Track user scroll via wheel - set flag when scrolling up, clear when at bottom
-    containerRef.current.addEventListener('wheel', (e) => {
+    const wheelHandler = (e: WheelEvent) => {
       if (e.deltaY < 0) {
         // Scrolling up
         userScrolledUpRef.current = true
@@ -459,10 +482,11 @@ export function Terminal({ ptyId, isActive, theme, onFocus, projectPath, backend
         // Scrolling down and reached bottom
         userScrolledUpRef.current = false
       }
-    }, { passive: true })
+    }
+    containerRef.current.addEventListener('wheel', wheelHandler, { passive: true })
 
     // Also track scroll events to detect when user scrolls back to bottom
-    terminal.onScroll(() => {
+    const cleanupScroll = terminal.onScroll(() => {
       if (isAtBottom()) {
         userScrolledUpRef.current = false
       }
@@ -566,7 +590,7 @@ export function Terminal({ ptyId, isActive, theme, onFocus, projectPath, backend
     })
 
     // Right-click: copy if selection, else paste (scroll is preserved in handlePaste)
-    containerRef.current.addEventListener('contextmenu', (e) => {
+    const contextmenuHandler = (e: MouseEvent) => {
       e.preventDefault()
       const selection = terminal.getSelection()
       if (selection) {
@@ -575,18 +599,20 @@ export function Terminal({ ptyId, isActive, theme, onFocus, projectPath, backend
         // No selection - paste (handlePaste preserves scroll)
         handlePaste(terminal, ptyId, backend)
       }
-    })
+    }
+    containerRef.current.addEventListener('contextmenu', contextmenuHandler)
 
     // Middle-click paste (Linux style) - handlePaste preserves scroll
-    containerRef.current.addEventListener('auxclick', (e) => {
+    const auxclickHandler = (e: MouseEvent) => {
       if (e.button === 1) {  // Middle button
         e.preventDefault()
         handlePaste(terminal, ptyId, backend)
       }
-    })
+    }
+    containerRef.current.addEventListener('auxclick', auxclickHandler)
 
     // Prevent scroll jump on click - stay at bottom unless user scrolled up
-    containerRef.current.addEventListener('mousedown', () => {
+    const mousedownHandler = () => {
       // Restore scroll position after a brief delay (after xterm processes the click)
       requestAnimationFrame(() => {
         if (disposed) return
@@ -594,7 +620,11 @@ export function Terminal({ ptyId, isActive, theme, onFocus, projectPath, backend
           terminal.scrollToBottom()
         }
       })
-    })
+    }
+    containerRef.current.addEventListener('mousedown', mousedownHandler)
+
+    // Store container reference for cleanup (containerRef.current may change)
+    const container = containerRef.current
 
 
     // Handle PTY output - always scroll to bottom unless user explicitly scrolled up
@@ -798,11 +828,17 @@ export function Terminal({ ptyId, isActive, theme, onFocus, projectPath, backend
       disposed = true
       cleanupData()
       cleanupExit()
+      cleanupScroll.dispose()
       if (resizeTimeout) clearTimeout(resizeTimeout)
       if (inputFlushTimeout) clearTimeout(inputFlushTimeout)
       if (scrollDebounceTimeout) clearTimeout(scrollDebounceTimeout)
       if (silentModeTimeoutRef.current) clearTimeout(silentModeTimeoutRef.current)
       resizeObserver.disconnect()
+      // Remove DOM event listeners
+      container.removeEventListener('wheel', wheelHandler)
+      container.removeEventListener('contextmenu', contextmenuHandler)
+      container.removeEventListener('auxclick', auxclickHandler)
+      container.removeEventListener('mousedown', mousedownHandler)
       // Dispose WebGL addon first to avoid race condition during terminal disposal
       if (webglAddonRef) {
         try {

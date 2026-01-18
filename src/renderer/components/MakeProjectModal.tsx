@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react'
+import { useFocusTrap } from '../hooks/useFocusTrap'
 
 const ICON_OPTIONS = [
   { emoji: '📁', label: 'Folder' },
@@ -31,6 +32,7 @@ export function MakeProjectModal({ isOpen, onClose, onProjectCreated }: MakeProj
   const [defaultDir, setDefaultDir] = useState('')
   const [error, setError] = useState('')
   const [isCreating, setIsCreating] = useState(false)
+  const focusTrapRef = useFocusTrap<HTMLDivElement>(isOpen)
 
   useEffect(() => {
     if (isOpen) {
@@ -82,7 +84,7 @@ export function MakeProjectModal({ isOpen, onClose, onProjectCreated }: MakeProj
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal" ref={focusTrapRef} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Create New Project</h2>
           <button className="modal-close" onClick={onClose}>×</button>

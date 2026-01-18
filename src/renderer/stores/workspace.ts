@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { clearProjectCaches } from '../utils/lruCache'
 
 export interface ProjectCategory {
   id: string
@@ -80,6 +81,7 @@ export const useWorkspaceStore = create<WorkspaceState>((set, get) => ({
 
   removeProject: (path) => {
     const { projects } = get()
+    clearProjectCaches(path)
     set({ projects: projects.filter((p) => p.path !== path) })
   },
 

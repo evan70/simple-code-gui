@@ -2,6 +2,11 @@ import React, { useState, useRef, useEffect } from 'react'
 import ReactDOM from 'react-dom'
 import { CommandMenuItem, getCommandMenuItems } from '../utils/backendCommands'
 
+// Type guard for checking if event target is a valid Node for contains() check
+function isEventTargetNode(target: EventTarget | null): target is Node {
+  return target !== null && target instanceof Node
+}
+
 interface TerminalMenuProps {
   ptyId: string
   onCommand: (command: string, options?: AutoWorkOptions) => void
@@ -144,10 +149,11 @@ export function TerminalMenu({ ptyId, onCommand, currentBackend, onBackendChange
   // Close dropdown (not the bar) when clicking outside
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      if (!isEventTargetNode(e.target)) return
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
         // Also check if click is on the portal dropdown
         const dropdown = document.querySelector('.terminal-menu-dropdown-portal')
-        if (dropdown && dropdown.contains(e.target as Node)) {
+        if (dropdown && dropdown.contains(e.target)) {
           return
         }
         setOpenDropdown(null)

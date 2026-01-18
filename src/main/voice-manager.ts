@@ -16,7 +16,6 @@ const whisperModelsDir = path.join(whisperDir, 'models')
 const piperDir = path.join(depsDir, 'piper')
 const piperVoicesDir = path.join(piperDir, 'voices')
 const customVoicesDir = path.join(piperDir, 'custom-voices')
-const openvoiceDir = path.join(depsDir, 'openvoice')
 const voiceSettingsPath = path.join(app.getPath('userData'), 'voice-settings.json')
 
 // Hugging Face API for voice catalog
@@ -104,14 +103,14 @@ export interface WhisperStatus {
 
 export interface TTSStatus {
   installed: boolean
-  engine: 'piper' | 'xtts' | 'openvoice' | null
+  engine: 'piper' | 'xtts' | null
   voices: string[]
   currentVoice: string | null
 }
 
 export interface VoiceSettings {
   whisperModel: WhisperModelName
-  ttsEngine: 'piper' | 'xtts' | 'openvoice'
+  ttsEngine: 'piper' | 'xtts'
   ttsVoice: string
   ttsSpeed: number  // 0.5 = slow, 1.0 = normal, 2.0 = fast (Piper length_scale is inverted)
   microphoneId: string | null
@@ -287,7 +286,7 @@ async function extractArchive(archivePath: string, destDir: string): Promise<voi
 class VoiceManager {
   private currentWhisperModel: WhisperModelName = 'base.en'
   private currentTTSVoice: string = 'en_US-libritts_r-medium'
-  private currentTTSEngine: 'piper' | 'xtts' | 'openvoice' = 'piper'
+  private currentTTSEngine: 'piper' | 'xtts' = 'piper'
   private currentXTTSVoice: string | null = null  // XTTS voice ID
   private currentTTSSpeed: number = 1.0
   private speakingProcess: ChildProcess | null = null
@@ -483,6 +482,15 @@ class VoiceManager {
     }
   }
 
+  // Combined status check for both Whisper and TTS in a single call
+  async getFullVoiceStatus(): Promise<{ whisper: WhisperStatus; tts: TTSStatus }> {
+    const [whisper, tts] = await Promise.all([
+      this.checkWhisper(),
+      this.checkTTS()
+    ])
+    return { whisper, tts }
+  }
+
   async installPiper(onProgress?: (status: string, percent?: number) => void): Promise<{ success: boolean; error?: string }> {
     try {
       ensureDir(piperDir)
@@ -573,11 +581,11 @@ class VoiceManager {
     }
   }
 
-  setTTSEngine(engine: 'piper' | 'xtts' | 'openvoice'): void {
+  setTTSEngine(engine: 'piper' | 'xtts'): void {
     this.currentTTSEngine = engine
   }
 
-  getCurrentEngine(): 'piper' | 'xtts' | 'openvoice' {
+  getCurrentEngine(): 'piper' | 'xtts' {
     return this.currentTTSEngine
   }
 
@@ -683,13 +691,13 @@ class VoiceManager {
 
   private voicesCatalogCache: Record<string, VoiceCatalogEntry> | null = null
   private catalogCacheTime: number = 0
-  private readonly CATALOG_CACHE_DURATION = 1000 * 60 * 30 // 30 minutes
+  private readonly CATALOG_CACHE_DURATION = 1000 * 60 * 10 // 10 minutes
 
-  async fetchVoicesCatalog(): Promise<VoiceCatalogEntry[]> {
+  async fetchVoicesCatalog(forceRefresh: boolean = false): Promise<VoiceCatalogEntry[]> {
     try {
-      // Use cache if fresh
+      // Use cache if fresh (unless force refresh requested)
       const now = Date.now()
-      if (this.voicesCatalogCache && (now - this.catalogCacheTime) < this.CATALOG_CACHE_DURATION) {
+      if (!forceRefresh && this.voicesCatalogCache && (now - this.catalogCacheTime) < this.CATALOG_CACHE_DURATION) {
         return Object.values(this.voicesCatalogCache)
       }
 
@@ -947,25 +955,6 @@ class VoiceManager {
     } catch (e: any) {
       return { success: false, error: e.message }
     }
-  }
-
-  // ==================== OPENVOICE (Voice Cloning) ====================
-  // TODO: Implement OpenVoice integration for voice cloning
-  // This will require Python and the OpenVoice package
-
-  async checkOpenVoice(): Promise<{ installed: boolean }> {
-    // Check if OpenVoice Python package is available
-    return { installed: false }
-  }
-
-  async installOpenVoice(onProgress?: (status: string, percent?: number) => void): Promise<{ success: boolean; error?: string }> {
-    // TODO: Implement OpenVoice installation
-    return { success: false, error: 'OpenVoice integration not yet implemented' }
-  }
-
-  async importCustomVoice(audioPath: string): Promise<{ success: boolean; voiceId?: string; error?: string }> {
-    // TODO: Implement voice cloning using OpenVoice
-    return { success: false, error: 'Voice cloning not yet implemented' }
   }
 
   // ==================== SETTINGS ====================

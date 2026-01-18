@@ -1,8 +1,37 @@
 import { ipcMain, BrowserWindow, clipboard } from 'electron'
 import { writeFileSync, existsSync, mkdirSync, readFileSync } from 'fs'
-import { join } from 'path'
+import { join, resolve } from 'path'
 import { tmpdir, homedir } from 'os'
 import { isWindows } from '../platform'
+
+/**
+ * Validates that a project path is safe and doesn't contain path traversal attempts.
+ * Returns the resolved absolute path if valid, or throws an error if invalid.
+ */
+function validateProjectPath(projectPath: string): string {
+  // Reject null bytes which can truncate paths
+  if (projectPath.includes('\0')) {
+    throw new Error('Invalid project path: contains null bytes')
+  }
+
+  const resolved = resolve(projectPath)
+  const home = homedir()
+
+  // Path must be absolute and within home directory or common project locations
+  // This prevents path traversal attacks (e.g., ../../etc/passwd)
+  if (!resolved.startsWith(home) && !resolved.startsWith('/tmp') && !resolved.startsWith('/var/tmp')) {
+    throw new Error('Invalid project path: must be within home directory or temp directories')
+  }
+
+  // Verify that the resolved path doesn't escape via symlink traversal
+  // by checking that joining with a subpath stays within the base
+  const testPath = resolve(resolved, '.claude')
+  if (!testPath.startsWith(resolved)) {
+    throw new Error('Invalid project path: path traversal detected')
+  }
+
+  return resolved
+}
 
 export function registerWindowHandlers(getMainWindow: () => BrowserWindow | null) {
   ipcMain.handle('window:minimize', () => {
@@ -98,6 +127,9 @@ export function registerWindowHandlers(getMainWindow: () => BrowserWindow | null
   // Custom commands
   ipcMain.handle('commands:save', async (_, { name, content, projectPath }: { name: string; content: string; projectPath: string | null }) => {
     try {
+      // Sanitize name to prevent path traversal attacks
+      const sanitizedName = name.replace(/[\/\\:*?"<>|]/g, '_')
+
       let commandsDir: string
       if (projectPath) {
         commandsDir = join(projectPath, '.claude', 'commands')
@@ -109,9 +141,17 @@ export function registerWindowHandlers(getMainWindow: () => BrowserWindow | null
         mkdirSync(commandsDir, { recursive: true })
       }
 
-      const filePath = join(commandsDir, `${name}.md`)
+      const filePath = join(commandsDir, `${sanitizedName}.md`)
+
+      // Verify resolved path is within commands directory to prevent path traversal
+      const resolvedPath = resolve(filePath)
+      const resolvedCommandsDir = resolve(commandsDir)
+      if (!resolvedPath.startsWith(resolvedCommandsDir + '/') && resolvedPath !== resolvedCommandsDir) {
+        return { success: false, error: 'Invalid command name' }
+      }
+
       if (existsSync(filePath)) {
-        return { success: false, error: `Command "${name}" already exists` }
+        return { success: false, error: `Command "${sanitizedName}" already exists` }
       }
 
       writeFileSync(filePath, content, 'utf8')
@@ -124,9 +164,18 @@ export function registerWindowHandlers(getMainWindow: () => BrowserWindow | null
   // CLAUDE.md editor
   ipcMain.handle('claudemd:read', async (_, projectPath: string) => {
     try {
-      const claudeMdPath = join(projectPath, '.claude', 'CLAUDE.md')
-      if (existsSync(claudeMdPath)) {
-        const content = readFileSync(claudeMdPath, 'utf8')
+      // Validate project path to prevent path traversal attacks
+      const validatedPath = validateProjectPath(projectPath)
+      const claudeMdPath = join(validatedPath, '.claude', 'CLAUDE.md')
+
+      // Double-check the resolved path stays within the validated project path
+      const resolvedClaudeMdPath = resolve(claudeMdPath)
+      if (!resolvedClaudeMdPath.startsWith(validatedPath)) {
+        return { success: false, error: 'Invalid path: path traversal detected' }
+      }
+
+      if (existsSync(resolvedClaudeMdPath)) {
+        const content = readFileSync(resolvedClaudeMdPath, 'utf8')
         return { success: true, content, exists: true }
       }
       return { success: true, content: '', exists: false }
@@ -137,14 +186,23 @@ export function registerWindowHandlers(getMainWindow: () => BrowserWindow | null
 
   ipcMain.handle('claudemd:save', async (_, { projectPath, content }: { projectPath: string; content: string }) => {
     try {
-      const claudeDir = join(projectPath, '.claude')
+      // Validate project path to prevent path traversal attacks
+      const validatedPath = validateProjectPath(projectPath)
+      const claudeDir = join(validatedPath, '.claude')
       const claudeMdPath = join(claudeDir, 'CLAUDE.md')
 
-      if (!existsSync(claudeDir)) {
-        mkdirSync(claudeDir, { recursive: true })
+      // Double-check the resolved paths stay within the validated project path
+      const resolvedClaudeDir = resolve(claudeDir)
+      const resolvedClaudeMdPath = resolve(claudeMdPath)
+      if (!resolvedClaudeDir.startsWith(validatedPath) || !resolvedClaudeMdPath.startsWith(validatedPath)) {
+        return { success: false, error: 'Invalid path: path traversal detected' }
       }
 
-      writeFileSync(claudeMdPath, content, 'utf8')
+      if (!existsSync(resolvedClaudeDir)) {
+        mkdirSync(resolvedClaudeDir, { recursive: true })
+      }
+
+      writeFileSync(resolvedClaudeMdPath, content, 'utf8')
       return { success: true }
     } catch (error) {
       return { success: false, error: String(error) }

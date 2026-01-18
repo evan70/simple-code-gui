@@ -10,6 +10,12 @@ interface ClaudeProcess {
   cwd: string
   sessionId?: string
   backend?: string
+  disposables: { dispose: () => void }[]
+}
+
+// Extended node-pty options - useConpty is a Windows-specific option not in @types/node-pty
+interface ExtendedPtyForkOptions extends pty.IPtyForkOptions {
+  useConpty?: boolean
 }
 
 function getEnhancedEnv(): { [key: string]: string } {
@@ -341,7 +347,7 @@ export class PtyManager {
     const exe = findExecutable(backend)
     console.log('Spawning', backend, ':', exe, 'in', cwd, 'with args:', args)
 
-    const ptyOptions: pty.IPtyForkOptions = {
+    const ptyOptions: ExtendedPtyForkOptions = {
       name: 'xterm-256color',
       cols: 120,
       rows: 30,
@@ -352,7 +358,7 @@ export class PtyManager {
 
     // Windows: try winpty instead of ConPTY for better escape sequence handling
     if (isWindows) {
-      (ptyOptions as any).useConpty = false;
+      ptyOptions.useConpty = false
     }
 
     const shell = pty.spawn(exe, args, ptyOptions)
@@ -362,27 +368,29 @@ export class PtyManager {
       pty: shell,
       cwd,
       sessionId,
-      backend
+      backend,
+      disposables: []
     }
 
     this.processes.set(id, proc)
 
-    shell.onData((data) => {
+    // Store disposables from onData/onExit for proper cleanup
+    const dataDisposable = shell.onData((data) => {
       const callback = this.dataCallbacks.get(id)
       if (callback) {
         callback(data)
       }
     })
+    proc.disposables.push(dataDisposable)
 
-    shell.onExit(({ exitCode }) => {
+    const exitDisposable = shell.onExit(({ exitCode }) => {
       const callback = this.exitCallbacks.get(id)
       if (callback) {
         callback(exitCode)
       }
-      this.processes.delete(id)
-      this.dataCallbacks.delete(id)
-      this.exitCallbacks.delete(id)
+      this.cleanupProcess(id)
     })
+    proc.disposables.push(exitDisposable)
 
     return id
   }
@@ -406,6 +414,24 @@ export class PtyManager {
     }
   }
 
+  private cleanupProcess(id: string): void {
+    const proc = this.processes.get(id)
+    if (proc) {
+      // Dispose all event listeners first
+      for (const disposable of proc.disposables) {
+        try {
+          disposable.dispose()
+        } catch (e) {
+          // Ignore dispose errors
+        }
+      }
+      proc.disposables.length = 0
+    }
+    this.processes.delete(id)
+    this.dataCallbacks.delete(id)
+    this.exitCallbacks.delete(id)
+  }
+
   kill(id: string): void {
     const proc = this.processes.get(id)
     if (proc) {
@@ -419,9 +445,7 @@ export class PtyManager {
       } catch (e) {
         // Process may already be dead
       }
-      this.processes.delete(id)
-      this.dataCallbacks.delete(id)
-      this.exitCallbacks.delete(id)
+      this.cleanupProcess(id)
     }
   }
 

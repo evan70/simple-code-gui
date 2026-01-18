@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useMemo } from 'react'
 import { useVoice } from '../contexts/VoiceContext'
+import { getSampleUrl } from '../utils/voiceUtils'
 
 interface VoiceCatalogEntry {
   key: string
@@ -42,20 +43,15 @@ interface XTTSLanguage {
   name: string
 }
 
+// Extended HTMLAudioElement with custom stop function for clean cleanup
+interface ExtendedAudioElement extends HTMLAudioElement {
+  _stop?: () => void
+}
+
 interface VoiceBrowserModalProps {
   isOpen: boolean
   onClose: () => void
   onVoiceSelect?: (voiceKey: string, engine: 'piper' | 'xtts') => void
-}
-
-// Build sample audio URL from voice key
-// Pattern: https://huggingface.co/rhasspy/piper-voices/resolve/main/{lang}/{lang_region}/{name}/{quality}/samples/speaker_0.mp3
-function getSampleUrl(voiceKey: string): string | null {
-  // Parse key like "en_US-lessac-medium" or "de_DE-thorsten-medium"
-  const match = voiceKey.match(/^([a-z]{2})_([A-Z]{2})-(.+)-([a-z_]+)$/)
-  if (!match) return null
-  const [, lang, region, name, quality] = match
-  return `https://huggingface.co/rhasspy/piper-voices/resolve/main/${lang}/${lang}_${region}/${name}/${quality}/samples/speaker_0.mp3`
 }
 
 export function VoiceBrowserModal({ isOpen, onClose, onVoiceSelect }: VoiceBrowserModalProps) {
@@ -74,7 +70,7 @@ export function VoiceBrowserModal({ isOpen, onClose, onVoiceSelect }: VoiceBrows
   const [qualityFilter, setQualityFilter] = useState('all')
   const [downloading, setDownloading] = useState<string | null>(null)
   const [playingPreview, setPlayingPreview] = useState<string | null>(null)
-  const [previewAudio, setPreviewAudio] = useState<HTMLAudioElement | null>(null)
+  const [previewAudio, setPreviewAudio] = useState<ExtendedAudioElement | null>(null)
 
   // XTTS voice creation state
   const [showCreateXtts, setShowCreateXtts] = useState(false)
@@ -99,13 +95,13 @@ export function VoiceBrowserModal({ isOpen, onClose, onVoiceSelect }: VoiceBrows
     }
   }, [isOpen])
 
-  const loadData = async () => {
+  const loadData = async (forceRefresh: boolean = false) => {
     setLoading(true)
     setError(null)
 
     try {
       const [catalogData, installedData, xttsVoicesData, xttsSamplesData, xttsLangs, xttsCheck] = await Promise.all([
-        window.electronAPI.voiceFetchCatalog(),
+        window.electronAPI.voiceFetchCatalog(forceRefresh),
         window.electronAPI.voiceGetInstalled(),
         window.electronAPI.xttsGetVoices(),
         window.electronAPI.xttsGetSampleVoices(),
@@ -119,8 +115,8 @@ export function VoiceBrowserModal({ isOpen, onClose, onVoiceSelect }: VoiceBrows
       setXttsLanguages(xttsLangs)
       setXttsStatus({ installed: xttsCheck.installed, error: xttsCheck.error })
       setLoading(false)
-    } catch (e: any) {
-      setError(e.message || 'Failed to load voice catalog')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to load voice catalog')
       setLoading(false)
     }
   }
@@ -272,8 +268,8 @@ export function VoiceBrowserModal({ isOpen, onClose, onVoiceSelect }: VoiceBrows
           setError(result.error || 'Download failed')
         }
       }
-    } catch (e: any) {
-      setError(e.message || 'Download failed')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Download failed')
     }
     setDownloading(null)
   }
@@ -308,7 +304,12 @@ export function VoiceBrowserModal({ isOpen, onClose, onVoiceSelect }: VoiceBrows
 
     // Stop current preview if playing
     if (previewAudio) {
-      ;(previewAudio as any)._stop?.() || (previewAudio.pause(), previewAudio.src = '')
+      if (previewAudio._stop) {
+        previewAudio._stop()
+      } else {
+        previewAudio.pause()
+        previewAudio.src = ''
+      }
       setPreviewAudio(null)
     }
 
@@ -324,7 +325,7 @@ export function VoiceBrowserModal({ isOpen, onClose, onVoiceSelect }: VoiceBrows
       return
     }
 
-    const audio = new Audio(sampleUrl)
+    const audio = new Audio(sampleUrl) as ExtendedAudioElement
     audio.volume = voiceVolume
     let intentionallyStopped = false
 
@@ -342,7 +343,7 @@ export function VoiceBrowserModal({ isOpen, onClose, onVoiceSelect }: VoiceBrows
     }
 
     // Mark as intentionally stopped when we clean up
-    ;(audio as any)._stop = () => {
+    audio._stop = () => {
       intentionallyStopped = true
       audio.pause()
       audio.src = ''
@@ -356,7 +357,12 @@ export function VoiceBrowserModal({ isOpen, onClose, onVoiceSelect }: VoiceBrows
   // Stop preview when modal closes
   React.useEffect(() => {
     if (!isOpen && previewAudio) {
-      ;(previewAudio as any)._stop?.() || (previewAudio.pause(), previewAudio.src = '')
+      if (previewAudio._stop) {
+        previewAudio._stop()
+      } else {
+        previewAudio.pause()
+        previewAudio.src = ''
+      }
       setPreviewAudio(null)
       setPlayingPreview(null)
     }
@@ -385,8 +391,8 @@ export function VoiceBrowserModal({ isOpen, onClose, onVoiceSelect }: VoiceBrows
       } else {
         setError(result.error || 'XTTS installation failed')
       }
-    } catch (e: any) {
-      setError(e.message || 'XTTS installation failed')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'XTTS installation failed')
     }
     setInstallingXtts(false)
   }
@@ -444,8 +450,8 @@ export function VoiceBrowserModal({ isOpen, onClose, onVoiceSelect }: VoiceBrows
       } else {
         setError(result.error || 'Failed to extract audio clip')
       }
-    } catch (e: any) {
-      setError(e.message || 'Failed to extract audio clip')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to extract audio clip')
     }
     setExtracting(false)
   }
@@ -476,8 +482,8 @@ export function VoiceBrowserModal({ isOpen, onClose, onVoiceSelect }: VoiceBrows
       } else {
         setError(result.error || 'Failed to extract audio clip')
       }
-    } catch (e: any) {
-      setError(e.message || 'Failed to extract audio clip')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to extract audio clip')
     }
     setExtracting(false)
   }
@@ -499,8 +505,8 @@ export function VoiceBrowserModal({ isOpen, onClose, onVoiceSelect }: VoiceBrows
       } else {
         setError(result.error || 'Failed to create voice')
       }
-    } catch (e: any) {
-      setError(e.message || 'Failed to create voice')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to create voice')
     }
     setCreatingXtts(false)
   }
@@ -547,6 +553,14 @@ export function VoiceBrowserModal({ isOpen, onClose, onVoiceSelect }: VoiceBrows
             ))}
             <option value="clone">clone</option>
           </select>
+          <button
+            className="btn-secondary voice-refresh-btn"
+            onClick={() => loadData(true)}
+            disabled={loading}
+            title="Refresh catalog from server"
+          >
+            Refresh
+          </button>
         </div>
 
         <div className="voice-browser-content">

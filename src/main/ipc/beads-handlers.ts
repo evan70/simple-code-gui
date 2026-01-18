@@ -1,12 +1,59 @@
 import { ipcMain, BrowserWindow } from 'electron'
-import { exec } from 'child_process'
+import { exec, spawn } from 'child_process'
 import { promisify } from 'util'
-import { existsSync } from 'fs'
+import { existsSync, watch as fsWatch, FSWatcher } from 'fs'
 import { join } from 'path'
 import { getEnhancedPathWithPortable, setPortableBinDirs } from '../platform'
 import { getPortableBinDirs, installBeadsBinary, getBeadsBinaryPath } from '../portable-deps'
 
 const execAsync = promisify(exec)
+
+// File system watchers for .beads directories
+const beadsWatchers = new Map<string, FSWatcher>()
+
+// Debounce timers for file change events
+const debounceTimers = new Map<string, NodeJS.Timeout>()
+
+// Debounce delay in ms
+const DEBOUNCE_DELAY = 500
+
+// Validate taskId to prevent shell command injection
+// Task IDs should only contain alphanumeric characters, hyphens, and underscores
+const TASK_ID_PATTERN = /^[a-zA-Z0-9_-]+$/
+function validateTaskId(taskId: string): void {
+  if (!taskId || !TASK_ID_PATTERN.test(taskId)) {
+    throw new Error(`Invalid task ID: ${taskId}`)
+  }
+}
+
+// Execute bd command with arguments using spawn (safer than exec with template literals)
+function spawnBdCommand(args: string[], options: { cwd?: string }): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const execOptions = getBeadsExecOptions()
+    const proc = spawn('bd', args, {
+      cwd: options.cwd,
+      env: execOptions.env,
+      shell: false // Explicitly disable shell to prevent injection
+    })
+
+    let stdout = ''
+    let stderr = ''
+
+    proc.stdout.on('data', (data) => { stdout += data.toString() })
+    proc.stderr.on('data', (data) => { stderr += data.toString() })
+
+    proc.on('close', (code) => {
+      if (code === 0) {
+        resolve({ stdout, stderr })
+      } else {
+        const error = new Error(stderr || `Command failed with code ${code}`)
+        reject(error)
+      }
+    })
+
+    proc.on('error', reject)
+  })
+}
 
 let beadsAvailable: boolean | null = null
 
@@ -67,7 +114,8 @@ export function registerBeadsHandlers(getMainWindow: () => BrowserWindow | null)
 
   ipcMain.handle('beads:show', async (_, { cwd, taskId }: { cwd: string; taskId: string }) => {
     try {
-      const { stdout } = await execAsync(`bd show ${taskId} --json`, { ...getBeadsExecOptions(), cwd })
+      validateTaskId(taskId)
+      const { stdout } = await spawnBdCommand(['show', taskId, '--json'], { cwd })
       return { success: true, task: JSON.parse(stdout) }
     } catch (e: any) {
       return { success: false, error: e.message }
@@ -76,13 +124,20 @@ export function registerBeadsHandlers(getMainWindow: () => BrowserWindow | null)
 
   ipcMain.handle('beads:create', async (_, { cwd, title, description, priority, type, labels }: { cwd: string; title: string; description?: string; priority?: number; type?: string; labels?: string }) => {
     try {
-      let cmd = `bd create "${title.replace(/"/g, '\\"')}"`
-      if (description) cmd += ` -d "${description.replace(/"/g, '\\"')}"`
-      if (priority !== undefined) cmd += ` -p ${priority}`
-      if (type) cmd += ` -t ${type}`
-      if (labels) cmd += ` -l "${labels.replace(/"/g, '\\"')}"`
-      cmd += ' --json'
-      const { stdout } = await execAsync(cmd, { ...getBeadsExecOptions(), cwd })
+      // Validate inputs
+      if (!title || typeof title !== 'string') {
+        return { success: false, error: 'Title is required' }
+      }
+      if (type && !TASK_ID_PATTERN.test(type)) {
+        return { success: false, error: 'Invalid type format' }
+      }
+      const args = ['create', title]
+      if (description) args.push('-d', description)
+      if (priority !== undefined) args.push('-p', String(priority))
+      if (type) args.push('-t', type)
+      if (labels) args.push('-l', labels)
+      args.push('--json')
+      const { stdout } = await spawnBdCommand(args, { cwd })
       return { success: true, task: JSON.parse(stdout) }
     } catch (e: any) {
       return { success: false, error: e.message }
@@ -91,7 +146,8 @@ export function registerBeadsHandlers(getMainWindow: () => BrowserWindow | null)
 
   ipcMain.handle('beads:complete', async (_, { cwd, taskId }: { cwd: string; taskId: string }) => {
     try {
-      const { stdout } = await execAsync(`bd close ${taskId} --json`, { ...getBeadsExecOptions(), cwd })
+      validateTaskId(taskId)
+      const { stdout } = await spawnBdCommand(['close', taskId, '--json'], { cwd })
       return { success: true, result: JSON.parse(stdout) }
     } catch (e: any) {
       return { success: false, error: e.message }
@@ -100,7 +156,8 @@ export function registerBeadsHandlers(getMainWindow: () => BrowserWindow | null)
 
   ipcMain.handle('beads:delete', async (_, { cwd, taskId }: { cwd: string; taskId: string }) => {
     try {
-      await execAsync(`bd delete ${taskId} --force`, { ...getBeadsExecOptions(), cwd })
+      validateTaskId(taskId)
+      await spawnBdCommand(['delete', taskId, '--force'], { cwd })
       return { success: true }
     } catch (e: any) {
       return { success: false, error: e.message }
@@ -109,7 +166,8 @@ export function registerBeadsHandlers(getMainWindow: () => BrowserWindow | null)
 
   ipcMain.handle('beads:start', async (_, { cwd, taskId }: { cwd: string; taskId: string }) => {
     try {
-      await execAsync(`bd update ${taskId} --status in_progress`, { ...getBeadsExecOptions(), cwd })
+      validateTaskId(taskId)
+      await spawnBdCommand(['update', taskId, '--status', 'in_progress'], { cwd })
       return { success: true }
     } catch (e: any) {
       return { success: false, error: e.message }
@@ -118,12 +176,13 @@ export function registerBeadsHandlers(getMainWindow: () => BrowserWindow | null)
 
   ipcMain.handle('beads:update', async (_, { cwd, taskId, status, title, description, priority }: { cwd: string; taskId: string; status?: string; title?: string; description?: string; priority?: number }) => {
     try {
-      const args = [taskId]
+      validateTaskId(taskId)
+      const args = ['update', taskId]
       if (status) args.push('--status', status)
-      if (title) args.push('--title', `"${title.replace(/"/g, '\\"')}"`)
-      if (description !== undefined) args.push('--description', `"${description.replace(/"/g, '\\"')}"`)
+      if (title) args.push('--title', title)
+      if (description !== undefined) args.push('--description', description)
       if (priority !== undefined) args.push('--priority', String(priority))
-      await execAsync(`bd update ${args.join(' ')}`, { ...getBeadsExecOptions(), cwd })
+      await spawnBdCommand(args, { cwd })
       return { success: true }
     } catch (e: any) {
       return { success: false, error: e.message }
@@ -147,6 +206,70 @@ export function registerBeadsHandlers(getMainWindow: () => BrowserWindow | null)
       beadsAvailable = null
       return { success: false, error: e.message }
     }
+  })
+
+  // Start watching a project's .beads directory for changes
+  ipcMain.handle('beads:watch', async (_, cwd: string) => {
+    // Already watching this project
+    if (beadsWatchers.has(cwd)) {
+      return { success: true }
+    }
+
+    const beadsDir = join(cwd, '.beads')
+    if (!existsSync(beadsDir)) {
+      return { success: false, error: '.beads directory does not exist' }
+    }
+
+    try {
+      const watcher = fsWatch(beadsDir, { recursive: true }, (eventType, filename) => {
+        // Ignore certain files that shouldn't trigger updates (like lock files, socket files)
+        if (filename && (filename.endsWith('.lock') || filename.endsWith('.sock') || filename.includes('.startlock'))) {
+          return
+        }
+
+        // Debounce: clear existing timer and set a new one
+        const existingTimer = debounceTimers.get(cwd)
+        if (existingTimer) {
+          clearTimeout(existingTimer)
+        }
+
+        const timer = setTimeout(() => {
+          debounceTimers.delete(cwd)
+          // Emit the tasks-changed event to the renderer
+          getMainWindow()?.webContents.send('beads:tasks-changed', { cwd })
+        }, DEBOUNCE_DELAY)
+
+        debounceTimers.set(cwd, timer)
+      })
+
+      watcher.on('error', (err) => {
+        console.error(`Beads watcher error for ${cwd}:`, err)
+        // Clean up on error
+        beadsWatchers.delete(cwd)
+      })
+
+      beadsWatchers.set(cwd, watcher)
+      return { success: true }
+    } catch (e: any) {
+      return { success: false, error: e.message }
+    }
+  })
+
+  // Stop watching a project's .beads directory
+  ipcMain.handle('beads:unwatch', async (_, cwd: string) => {
+    const watcher = beadsWatchers.get(cwd)
+    if (watcher) {
+      watcher.close()
+      beadsWatchers.delete(cwd)
+
+      // Clear any pending debounce timer
+      const timer = debounceTimers.get(cwd)
+      if (timer) {
+        clearTimeout(timer)
+        debounceTimers.delete(cwd)
+      }
+    }
+    return { success: true }
   })
 }
 

@@ -19,6 +19,7 @@ import {
   ProjectSettingsModal,
   CategoryContextMenu,
   DeleteConfirmModal,
+  VirtualizedProjectList,
 } from './sidebar/index.js'
 
 export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onAddProject, onRemoveProject, onOpenSession, onSwitchToTab, onOpenSettings, onOpenMakeProject, onUpdateProject, onCloseProjectTabs, width, collapsed, onWidthChange, onCollapsedChange }: SidebarProps) {
@@ -70,10 +71,15 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
   }, [])
 
   useEffect(() => {
+    let rafId: number | null = null
     const handleMouseMove = (e: MouseEvent) => {
       if (!isResizing) return
-      const newWidth = Math.min(Math.max(e.clientX, 200), 500)
-      onWidthChange(newWidth)
+      if (rafId !== null) return // Skip if a frame is already pending
+      rafId = requestAnimationFrame(() => {
+        rafId = null
+        const newWidth = Math.min(Math.max(e.clientX, 200), 500)
+        onWidthChange(newWidth)
+      })
     }
     const handleMouseUp = () => setIsResizing(false)
 
@@ -85,6 +91,7 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
     }
 
     return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId)
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
       document.body.style.cursor = ''
@@ -92,12 +99,24 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
     }
   }, [isResizing, onWidthChange])
 
-  // Computed values
+  // Computed values - memoized to prevent unnecessary re-renders of child components
   const focusedTabId = lastFocusedTabId || activeTabId
-  const focusedTab = openTabs.find(t => t.id === focusedTabId)
-  const focusedProjectPath = focusedTab?.projectPath || null
-  const focusedTabPtyId = focusedTab?.ptyId || null
-  const beadsProjectPath = expandedProject || focusedProjectPath
+  const focusedTab = useMemo(
+    () => openTabs.find(t => t.id === focusedTabId),
+    [openTabs, focusedTabId]
+  )
+  const focusedProjectPath = useMemo(
+    () => focusedTab?.projectPath || null,
+    [focusedTab]
+  )
+  const focusedTabPtyId = useMemo(
+    () => focusedTab?.ptyId || null,
+    [focusedTab]
+  )
+  const beadsProjectPath = useMemo(
+    () => expandedProject || focusedProjectPath,
+    [expandedProject, focusedProjectPath]
+  )
 
   // Project handlers
   const handleSelectExecutable = async (project: Project) => {
@@ -329,24 +348,31 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
     const settings = await window.electronAPI.getSettings()
     setGlobalPermissions({ tools: settings.autoAcceptTools || [], mode: settings.permissionMode || 'default' })
 
-    const [piperVoices, xttsVoices, voiceSettings] = await Promise.all([
-      window.electronAPI.voiceGetInstalled?.() || [],
-      window.electronAPI.xttsGetVoices?.() || [],
-      window.electronAPI.voiceGetSettings?.() || {}
-    ])
-    const combined: InstalledVoice[] = []
-    if (piperVoices) combined.push(...piperVoices)
-    if (xttsVoices) {
-      combined.push(...xttsVoices.map((v: { id: string; name: string }) => ({
-        key: v.id,
-        displayName: v.name,
-        source: 'xtts'
-      })))
+    try {
+      const [piperVoices, xttsVoices, voiceSettings] = await Promise.all([
+        window.electronAPI.voiceGetInstalled?.() || [],
+        window.electronAPI.xttsGetVoices?.() || [],
+        window.electronAPI.voiceGetSettings?.() || {}
+      ])
+      const combined: InstalledVoice[] = []
+      if (piperVoices) combined.push(...piperVoices)
+      if (xttsVoices) {
+        combined.push(...xttsVoices.map((v: { id: string; name: string }) => ({
+          key: v.id,
+          displayName: v.name,
+          source: 'xtts'
+        })))
+      }
+      setInstalledVoices(combined)
+      const voice = (voiceSettings as { ttsVoice?: string }).ttsVoice || ''
+      const engine = (voiceSettings as { ttsEngine?: string }).ttsEngine || 'piper'
+      setGlobalVoiceSettings({ voice, engine })
+    } catch (e) {
+      console.error('Failed to load voice settings:', e)
+      // Continue with defaults - voice features will be unavailable
+      setInstalledVoices([])
+      setGlobalVoiceSettings({ voice: '', engine: 'piper' })
     }
-    setInstalledVoices(combined)
-    const voice = (voiceSettings as { ttsVoice?: string }).ttsVoice || ''
-    const engine = (voiceSettings as { ttsEngine?: string }).ttsEngine || 'piper'
-    setGlobalVoiceSettings({ voice, engine })
 
     setProjectSettingsModal({
       project,
@@ -453,12 +479,12 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
     loadSessions()
   }, [expandedProject, projects])
 
-  const toggleProject = (e: React.MouseEvent, path: string) => {
+  const toggleProject = useCallback((e: React.MouseEvent, path: string) => {
     e.stopPropagation()
-    setExpandedProject(expandedProject === path ? null : path)
-  }
+    setExpandedProject(prev => prev === path ? null : path)
+  }, [])
 
-  const openMostRecentSession = async (projectPath: string) => {
+  const openMostRecentSession = useCallback(async (projectPath: string) => {
     const existingTab = openTabs.find(tab => tab.projectPath === projectPath)
     const project = projects.find(item => item.path === projectPath)
     const effectiveBackend = project?.backend && project.backend !== 'default'
@@ -487,10 +513,66 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
     } else {
       onOpenSession(projectPath, undefined, undefined, undefined, false)
     }
-  }
+  }, [openTabs, projects, sessions, onSwitchToTab, onOpenSession])
 
-  // Render project item
-  const renderProjectItem = (project: Project) => (
+  // Memoized handlers for ProjectItem to prevent breaking React.memo
+  const handleProjectToggleExpand = useCallback((e: React.MouseEvent, projectPath: string) => {
+    toggleProject(e, projectPath)
+  }, [toggleProject])
+
+  const handleProjectOpenSession = useCallback((projectPath: string, sessionId?: string, slug?: string, isNewSession?: boolean) => {
+    if (sessionId) {
+      onOpenSession(projectPath, sessionId, slug)
+    } else if (isNewSession) {
+      // Explicit "New Session" click - always create a new session
+      onOpenSession(projectPath, undefined, undefined, undefined, true)
+    } else {
+      openMostRecentSession(projectPath)
+    }
+  }, [onOpenSession, openMostRecentSession])
+
+  const handleProjectRunExecutable = useCallback(async (projectPath: string) => {
+    const project = projects.find(p => p.path === projectPath)
+    if (project) {
+      await handleRunExecutable(project)
+    }
+  }, [projects])
+
+  const handleProjectCloseProjectTabs = useCallback((projectPath: string) => {
+    onCloseProjectTabs(projectPath)
+  }, [onCloseProjectTabs])
+
+  const handleProjectContextMenu = useCallback((e: React.MouseEvent, project: Project) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setContextMenu({ x: e.clientX, y: e.clientY, project })
+  }, [])
+
+  const handleProjectItemDragStart = useCallback((e: React.DragEvent, projectPath: string) => {
+    handleProjectDragStart(e, projectPath)
+  }, [])
+
+  const handleProjectItemDragOver = useCallback((e: React.DragEvent, projectPath: string) => {
+    const rect = e.currentTarget.getBoundingClientRect()
+    const midY = rect.top + rect.height / 2
+    const position = e.clientY < midY ? 'before' : 'after'
+    handleProjectDragOver(e, projectPath, position)
+  }, [draggedProject])
+
+  const handleProjectItemDrop = useCallback((e: React.DragEvent, projectPath: string, categoryId: string | undefined) => {
+    handleProjectDrop(e, projectPath, categoryId)
+  }, [draggedProject, projects, dropTarget, moveProjectToCategory, reorderProjects])
+
+  const handleProjectStartRename = useCallback((e: React.MouseEvent, project: Project) => {
+    handleStartRename(e, project)
+  }, [])
+
+  const handleProjectEditingChange = useCallback((name: string) => {
+    setEditingProject(prev => prev ? { ...prev, name } : null)
+  }, [])
+
+  // Render project item - now using stable callback references
+  const renderProjectItem = useCallback((project: Project) => (
     <ProjectItem
       key={project.path}
       project={project}
@@ -504,54 +586,58 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
       taskCounts={taskCounts[project.path]}
       dropTarget={dropTarget}
       editInputRef={editInputRef}
-      onToggleExpand={(e) => toggleProject(e, project.path)}
-      onOpenSession={(sessionId, slug, isNewSession) => {
-        if (sessionId) {
-          onOpenSession(project.path, sessionId, slug)
-        } else if (isNewSession) {
-          // Explicit "New Session" click - always create a new session
-          onOpenSession(project.path, undefined, undefined, undefined, true)
-        } else {
-          openMostRecentSession(project.path)
-        }
-      }}
-      onRunExecutable={() => handleRunExecutable(project)}
-      onCloseProjectTabs={() => onCloseProjectTabs(project.path)}
-      onContextMenu={(e) => {
-        e.preventDefault()
-        e.stopPropagation()
-        setContextMenu({ x: e.clientX, y: e.clientY, project })
-      }}
-      onDragStart={(e) => handleProjectDragStart(e, project.path)}
+      onToggleExpand={(e) => handleProjectToggleExpand(e, project.path)}
+      onOpenSession={(sessionId, slug, isNewSession) => handleProjectOpenSession(project.path, sessionId, slug, isNewSession)}
+      onRunExecutable={() => handleProjectRunExecutable(project.path)}
+      onCloseProjectTabs={() => handleProjectCloseProjectTabs(project.path)}
+      onContextMenu={(e) => handleProjectContextMenu(e, project)}
+      onDragStart={(e) => handleProjectItemDragStart(e, project.path)}
       onDragEnd={handleProjectDragEnd}
-      onDragOver={(e) => {
-        const rect = e.currentTarget.getBoundingClientRect()
-        const midY = rect.top + rect.height / 2
-        const position = e.clientY < midY ? 'before' : 'after'
-        handleProjectDragOver(e, project.path, position)
-      }}
-      onDrop={(e) => handleProjectDrop(e, project.path, project.categoryId)}
-      onStartRename={(e) => handleStartRename(e, project)}
-      onEditingChange={(name) => setEditingProject(prev => prev ? { ...prev, name } : null)}
+      onDragOver={(e) => handleProjectItemDragOver(e, project.path)}
+      onDrop={(e) => handleProjectItemDrop(e, project.path, project.categoryId)}
+      onStartRename={(e) => handleProjectStartRename(e, project)}
+      onEditingChange={handleProjectEditingChange}
       onRenameSubmit={handleRenameSubmit}
       onRenameKeyDown={handleRenameKeyDown}
     />
-  )
+  ), [
+    expandedProject,
+    focusedProjectPath,
+    openTabs,
+    draggedProject,
+    editingProject,
+    sessions,
+    taskCounts,
+    dropTarget,
+    handleProjectToggleExpand,
+    handleProjectOpenSession,
+    handleProjectRunExecutable,
+    handleProjectCloseProjectTabs,
+    handleProjectContextMenu,
+    handleProjectItemDragStart,
+    handleProjectDragEnd,
+    handleProjectItemDragOver,
+    handleProjectItemDrop,
+    handleProjectStartRename,
+    handleProjectEditingChange,
+    handleRenameSubmit,
+    handleRenameKeyDown
+  ])
 
   if (collapsed) {
     return (
       <div className="sidebar collapsed" ref={sidebarRef}>
-        <button className="sidebar-collapse-btn" onClick={() => onCollapsedChange(false)} title="Expand sidebar">▶</button>
+        <button className="sidebar-collapse-btn" onClick={() => onCollapsedChange(false)} title="Expand sidebar" aria-label="Expand sidebar">▶</button>
       </div>
     )
   }
 
   return (
     <div className="sidebar" ref={sidebarRef} style={{ width }}>
-      <button className="sidebar-collapse-btn" onClick={() => onCollapsedChange(true)} title="Collapse sidebar">◀</button>
+      <button className="sidebar-collapse-btn" onClick={() => onCollapsedChange(true)} title="Collapse sidebar" aria-label="Collapse sidebar">◀</button>
       <div className="sidebar-header">
         Projects
-        <button className="add-category-btn" onClick={handleAddCategory} title="Add category">+</button>
+        <button className="add-category-btn" onClick={handleAddCategory} title="Add category" aria-label="Add category">+</button>
       </div>
       <div className="projects-list">
         {sortedCategories.map((category) => {
@@ -570,6 +656,8 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
               <div
                 className={`category-header ${category.collapsed ? 'collapsed' : ''} ${draggedCategory === category.id ? 'dragging' : ''} ${textDark ? 'text-dark' : ''}`}
                 style={{ background: gradient }}
+                role="button"
+                tabIndex={0}
                 draggable={!editingCategory}
                 onDragStart={(e) => handleCategoryDragStart(e, category.id)}
                 onDragEnd={handleCategoryDragEnd}
@@ -585,13 +673,21 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
                   else if (draggedProject) handleCategoryDrop(e, category.id)
                 }}
                 onClick={() => toggleCategoryCollapse(category.id)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    toggleCategoryCollapse(category.id)
+                  }
+                }}
                 onContextMenu={(e) => {
                   e.preventDefault()
                   e.stopPropagation()
                   setCategoryContextMenu({ x: e.clientX, y: e.clientY, category })
                 }}
+                aria-expanded={!category.collapsed}
+                aria-label={`${category.name} category`}
               >
-                <span className="expand-arrow">{category.collapsed ? '▶' : '▼'}</span>
+                <span className="expand-arrow" aria-hidden="true">{category.collapsed ? '▶' : '▼'}</span>
                 {editingCategory?.id === category.id ? (
                   <input
                     ref={categoryEditInputRef}
@@ -616,7 +712,14 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
               )}
 
               {!category.collapsed && (
-                <div className="category-projects">{categoryProjects.map(renderProjectItem)}</div>
+                <div className="category-projects">
+                  <VirtualizedProjectList
+                    projects={categoryProjects}
+                    expandedProject={expandedProject}
+                    sessions={sessions}
+                    renderItem={renderProjectItem}
+                  />
+                </div>
               )}
             </div>
           )
@@ -631,7 +734,14 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
             {sortedCategories.length > 0 && projectsByCategory['uncategorized']?.length > 0 && (
               <div className="uncategorized-header">Uncategorized</div>
             )}
-            {projectsByCategory['uncategorized']?.map(renderProjectItem)}
+            {projectsByCategory['uncategorized'] && (
+              <VirtualizedProjectList
+                projects={projectsByCategory['uncategorized']}
+                expandedProject={expandedProject}
+                sessions={sessions}
+                renderItem={renderProjectItem}
+              />
+            )}
           </div>
         )}
 
@@ -712,8 +822,9 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
                   if (!hasPort) handleOpenProjectSettings(focusedProject)
                   else handleToggleApi(focusedProject)
                 }}
-                tabIndex={-1}
+                tabIndex={0}
                 title={status?.running ? `Stop API (port ${focusedProject.apiPort})` : hasPort ? `Start API (port ${focusedProject.apiPort})` : 'Configure API'}
+                aria-label={status?.running ? `Stop API (port ${focusedProject.apiPort})` : hasPort ? `Start API (port ${focusedProject.apiPort})` : 'Configure API'}
               >
                 {status?.running ? '🟢' : '🔌'}
               </button>
@@ -722,9 +833,9 @@ export function Sidebar({ projects, openTabs, activeTabId, lastFocusedTabId, onA
           return null
         })()}
         {isDebugMode && (
-          <button className="action-icon-btn" onClick={() => window.electronAPI.refresh()} tabIndex={-1} title="Refresh (Debug Mode)">🔄</button>
+          <button className="action-icon-btn" onClick={() => window.electronAPI.refresh()} tabIndex={0} title="Refresh (Debug Mode)" aria-label="Refresh (Debug Mode)">🔄</button>
         )}
-        <button className="action-icon-btn" onClick={onOpenSettings} tabIndex={-1} title="Settings">⚙️</button>
+        <button className="action-icon-btn" onClick={onOpenSettings} tabIndex={0} title="Settings" aria-label="Settings">⚙️</button>
       </div>
       <div className="sidebar-resize-handle" onMouseDown={handleMouseDown} />
 

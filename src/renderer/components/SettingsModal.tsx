@@ -1,19 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react'
 import { themes, getThemeById, applyTheme, Theme } from '../themes'
 import { VoiceBrowserModal } from './VoiceBrowserModal'
-import { useVoice } from '../contexts/VoiceContext'
-
-// Build sample audio URL from voice key (for Piper voices)
-function getSampleUrl(voiceKey: string): string | null {
-  // Parse key like "en_US-lessac-medium" or "de_DE-thorsten-medium"
-  const match = voiceKey.match(/^([a-z]{2})_([A-Z]{2})-(.+)-([a-z_]+)$/)
-  if (!match) return null
-  const [, lang, region, name, quality] = match
-  return `https://huggingface.co/rhasspy/piper-voices/resolve/main/${lang}/${lang}_${region}/${name}/${quality}/samples/speaker_0.mp3`
-}
+import { useVoice, WhisperModelSize } from '../contexts/VoiceContext'
+import { getSampleUrl } from '../utils/voiceUtils'
+import { useFocusTrap } from '../hooks/useFocusTrap'
 
 // Whisper models available
-const WHISPER_MODELS = [
+const WHISPER_MODELS: Array<{ value: WhisperModelSize; label: string; desc: string }> = [
   { value: 'tiny.en', label: 'Tiny (75MB)', desc: 'Fastest, basic accuracy' },
   { value: 'base.en', label: 'Base (147MB)', desc: 'Good balance' },
   { value: 'small.en', label: 'Small (488MB)', desc: 'Better accuracy' },
@@ -63,6 +56,78 @@ const BACKEND_MODES = [
   { label: 'Aider', value: 'aider', desc: 'Use Aider AI pair programmer' },
 ]
 
+// Grouped state interfaces to reduce useState calls
+interface GeneralSettings {
+  defaultProjectDir: string
+  selectedTheme: string
+  autoAcceptTools: string[]
+  permissionMode: string
+  customTool: string
+  backend: string
+}
+
+interface VoiceSettings {
+  whisperStatus: { installed: boolean; models: string[]; currentModel: string | null }
+  ttsStatus: { installed: boolean; voices: string[]; currentVoice: string | null }
+  selectedVoice: string
+  selectedEngine: 'piper' | 'xtts'
+  ttsSpeed: number
+  installedVoices: Array<{ key: string; displayName: string; source: string }>
+}
+
+interface XttsSettings {
+  temperature: number
+  topK: number
+  topP: number
+  repetitionPenalty: number
+}
+
+interface UIState {
+  installingModel: string | null
+  installingVoice: string | null
+  showVoiceBrowser: boolean
+  playingPreview: string | null
+  previewLoading: string | null
+  removingTTS: boolean
+  ttsRemovalResult: { success: number; failed: number } | null
+}
+
+// Default values for grouped state
+const DEFAULT_GENERAL: GeneralSettings = {
+  defaultProjectDir: '',
+  selectedTheme: 'default',
+  autoAcceptTools: [],
+  permissionMode: 'default',
+  customTool: '',
+  backend: 'claude'
+}
+
+const DEFAULT_VOICE: VoiceSettings = {
+  whisperStatus: { installed: false, models: [], currentModel: null },
+  ttsStatus: { installed: false, voices: [], currentVoice: null },
+  selectedVoice: 'en_US-libritts_r-medium',
+  selectedEngine: 'piper',
+  ttsSpeed: 1.0,
+  installedVoices: []
+}
+
+const DEFAULT_XTTS: XttsSettings = {
+  temperature: 0.65,
+  topK: 50,
+  topP: 0.85,
+  repetitionPenalty: 2.0
+}
+
+const DEFAULT_UI: UIState = {
+  installingModel: null,
+  installingVoice: null,
+  showVoiceBrowser: false,
+  playingPreview: null,
+  previewLoading: null,
+  removingTTS: false,
+  ttsRemovalResult: null
+}
+
 interface SettingsModalProps {
   isOpen: boolean
   onClose: () => void
@@ -71,97 +136,99 @@ interface SettingsModalProps {
 }
 
 export function SettingsModal({ isOpen, onClose, onThemeChange, onSaved }: SettingsModalProps) {
-  const [defaultProjectDir, setDefaultProjectDir] = useState('')
-  const [selectedTheme, setSelectedTheme] = useState('default')
-  const [autoAcceptTools, setAutoAcceptTools] = useState<string[]>([])
-  const [permissionMode, setPermissionMode] = useState('default')
-  const [customTool, setCustomTool] = useState('')
-  const [backend, setBackend] = useState('claude')
+  // Grouped state: general settings (theme, directory, permissions, backend)
+  const [general, setGeneral] = useState<GeneralSettings>(DEFAULT_GENERAL)
+
+  // Focus trap for modal accessibility
+  const focusTrapRef = useFocusTrap<HTMLDivElement>(isOpen)
 
   // Voice context for active whisper model and volume
   const { whisperModel: activeWhisperModel, setWhisperModel: setActiveWhisperModel, volume: voiceVolume } = useVoice()
 
   // Extensions state
   const [installedExtensions, setInstalledExtensions] = useState<Array<{ id: string; name: string; type: string }>>([])
-  const [showExtensionBrowser, setShowExtensionBrowser] = useState(false)
 
-  // Voice settings
-  const [whisperStatus, setWhisperStatus] = useState<{ installed: boolean; models: string[]; currentModel: string | null }>({ installed: false, models: [], currentModel: null })
-  const [ttsStatus, setTtsStatus] = useState<{ installed: boolean; voices: string[]; currentVoice: string | null }>({ installed: false, voices: [], currentVoice: null })
-  const [selectedWhisperModel, setSelectedWhisperModel] = useState('base.en')
-  const [selectedVoice, setSelectedVoice] = useState('en_US-libritts_r-medium')
-  const [selectedEngine, setSelectedEngine] = useState<'piper' | 'xtts'>('piper')
-  const [installingModel, setInstallingModel] = useState<string | null>(null)
-  const [installingVoice, setInstallingVoice] = useState<string | null>(null)
-  const [showVoiceBrowser, setShowVoiceBrowser] = useState(false)
-  const [installedVoices, setInstalledVoices] = useState<Array<{ key: string; displayName: string; source: string }>>([])
-  // XTTS quality settings
-  const [xttsTemperature, setXttsTemperature] = useState(0.65)
-  const [xttsTopK, setXttsTopK] = useState(50)
-  const [xttsTopP, setXttsTopP] = useState(0.85)
-  const [xttsRepetitionPenalty, setXttsRepetitionPenalty] = useState(2.0)
-  const [ttsSpeed, setTtsSpeed] = useState(1.0)
+  // Grouped state: voice settings (TTS, whisper status, selected voice/engine)
+  const [voice, setVoice] = useState<VoiceSettings>(DEFAULT_VOICE)
 
-  // Voice preview state
-  const [playingPreview, setPlayingPreview] = useState<string | null>(null)
-  const [previewLoading, setPreviewLoading] = useState<string | null>(null)
+  // Grouped state: XTTS quality settings
+  const [xtts, setXtts] = useState<XttsSettings>(DEFAULT_XTTS)
+
+  // Grouped state: UI/loading states
+  const [ui, setUI] = useState<UIState>(DEFAULT_UI)
+
+  // Audio preview ref
   const previewAudioRef = useRef<HTMLAudioElement | null>(null)
-
-  // TTS uninstall state
-  const [removingTTS, setRemovingTTS] = useState(false)
-  const [ttsRemovalResult, setTtsRemovalResult] = useState<{ success: number; failed: number } | null>(null)
 
   // Load installed voices (Piper and XTTS)
   const refreshInstalledVoices = async () => {
-    const [piperVoices, xttsVoices] = await Promise.all([
-      window.electronAPI.voiceGetInstalled?.(),
-      window.electronAPI.xttsGetVoices?.()
-    ])
-    const combined: Array<{ key: string; displayName: string; source: string }> = []
-    if (piperVoices) combined.push(...piperVoices)
-    if (xttsVoices) {
-      combined.push(...xttsVoices.map((v: { id: string; name: string }) => ({
-        key: v.id,
-        displayName: v.name,
-        source: 'xtts'
-      })))
+    try {
+      const [piperVoices, xttsVoices] = await Promise.all([
+        window.electronAPI.voiceGetInstalled?.(),
+        window.electronAPI.xttsGetVoices?.()
+      ])
+      const combined: Array<{ key: string; displayName: string; source: string }> = []
+      if (piperVoices) combined.push(...piperVoices)
+      if (xttsVoices) {
+        combined.push(...xttsVoices.map((v: { id: string; name: string }) => ({
+          key: v.id,
+          displayName: v.name,
+          source: 'xtts'
+        })))
+      }
+      setVoice(prev => ({ ...prev, installedVoices: combined }))
+    } catch (e) {
+      console.error('Failed to refresh installed voices:', e)
+      setVoice(prev => ({ ...prev, installedVoices: [] }))
     }
-    setInstalledVoices(combined)
   }
 
   useEffect(() => {
     if (isOpen) {
       window.electronAPI.getSettings().then((settings) => {
-        setDefaultProjectDir(settings.defaultProjectDir || '')
-        setSelectedTheme(settings.theme || 'default')
-        setAutoAcceptTools(settings.autoAcceptTools || [])
-        setPermissionMode(settings.permissionMode || 'default')
-        setBackend(settings.backend || 'claude')
+        setGeneral(prev => ({
+          ...prev,
+          defaultProjectDir: settings.defaultProjectDir || '',
+          selectedTheme: settings.theme || 'default',
+          autoAcceptTools: settings.autoAcceptTools || [],
+          permissionMode: settings.permissionMode || 'default',
+          backend: settings.backend || 'claude'
+        }))
       })
 
       // Load voice settings (active voice)
       window.electronAPI.voiceGetSettings?.().then((voiceSettings: { ttsVoice?: string; ttsEngine?: string; ttsSpeed?: number; xttsTemperature?: number; xttsTopK?: number; xttsTopP?: number; xttsRepetitionPenalty?: number }) => {
         if (voiceSettings) {
-          setSelectedVoice(voiceSettings.ttsVoice || 'en_US-libritts_r-medium')
-          setSelectedEngine((voiceSettings.ttsEngine as 'piper' | 'xtts') || 'piper')
-          setTtsSpeed(voiceSettings.ttsSpeed || 1.0)
-          // XTTS quality settings
-          setXttsTemperature(voiceSettings.xttsTemperature ?? 0.65)
-          setXttsTopK(voiceSettings.xttsTopK ?? 50)
-          setXttsTopP(voiceSettings.xttsTopP ?? 0.85)
-          setXttsRepetitionPenalty(voiceSettings.xttsRepetitionPenalty ?? 2.0)
+          setVoice(prev => ({
+            ...prev,
+            selectedVoice: voiceSettings.ttsVoice || 'en_US-libritts_r-medium',
+            selectedEngine: (voiceSettings.ttsEngine as 'piper' | 'xtts') || 'piper',
+            ttsSpeed: voiceSettings.ttsSpeed || 1.0
+          }))
+          setXtts({
+            temperature: voiceSettings.xttsTemperature ?? 0.65,
+            topK: voiceSettings.xttsTopK ?? 50,
+            topP: voiceSettings.xttsTopP ?? 0.85,
+            repetitionPenalty: voiceSettings.xttsRepetitionPenalty ?? 2.0
+          })
         }
-      }).catch(() => {})
+      }).catch(e => console.error('Failed to load voice settings:', e))
 
       // Load voice status
-      window.electronAPI.voiceCheckWhisper?.().then(setWhisperStatus).catch(() => {})
-      window.electronAPI.voiceCheckTTS?.().then(setTtsStatus).catch(() => {})
+      window.electronAPI.voiceCheckWhisper?.().then(status => {
+        setVoice(prev => ({ ...prev, whisperStatus: status }))
+      }).catch(e => console.error('Failed to check Whisper status:', e))
+
+      window.electronAPI.voiceCheckTTS?.().then(status => {
+        setVoice(prev => ({ ...prev, ttsStatus: status }))
+      }).catch(e => console.error('Failed to check TTS status:', e))
+
       refreshInstalledVoices()
 
       // Load installed extensions
       window.electronAPI.extensionsGetInstalled?.().then(exts => {
         setInstalledExtensions(exts || [])
-      }).catch(() => {})
+      }).catch(e => console.error('Failed to load installed extensions:', e))
     } else {
       // Stop preview when modal closes
       if (previewAudioRef.current) {
@@ -169,93 +236,108 @@ export function SettingsModal({ isOpen, onClose, onThemeChange, onSaved }: Setti
         previewAudioRef.current.src = ''
         previewAudioRef.current = null
       }
-      setPlayingPreview(null)
-      setPreviewLoading(null)
+      setUI(prev => ({ ...prev, playingPreview: null, previewLoading: null }))
     }
   }, [isOpen])
 
   const handleSelectDirectory = async () => {
     const dir = await window.electronAPI.selectDirectory()
     if (dir) {
-      setDefaultProjectDir(dir)
+      setGeneral(prev => ({ ...prev, defaultProjectDir: dir }))
     }
   }
 
   const handleThemeSelect = (themeId: string) => {
-    setSelectedTheme(themeId)
+    setGeneral(prev => ({ ...prev, selectedTheme: themeId }))
     const theme = getThemeById(themeId)
     applyTheme(theme)
     onThemeChange(theme)
   }
 
   const handleSave = async () => {
-    const newSettings = { defaultProjectDir, theme: selectedTheme, autoAcceptTools, permissionMode, backend }
+    const newSettings = {
+      defaultProjectDir: general.defaultProjectDir,
+      theme: general.selectedTheme,
+      autoAcceptTools: general.autoAcceptTools,
+      permissionMode: general.permissionMode,
+      backend: general.backend
+    }
     await window.electronAPI.saveSettings(newSettings)
     // Save voice settings including XTTS quality settings
     await window.electronAPI.voiceApplySettings?.({
-      ttsVoice: selectedVoice,
-      ttsEngine: selectedEngine,
-      ttsSpeed,
-      xttsTemperature,
-      xttsTopK,
-      xttsTopP,
-      xttsRepetitionPenalty
+      ttsVoice: voice.selectedVoice,
+      ttsEngine: voice.selectedEngine,
+      ttsSpeed: voice.ttsSpeed,
+      xttsTemperature: xtts.temperature,
+      xttsTopK: xtts.topK,
+      xttsTopP: xtts.topP,
+      xttsRepetitionPenalty: xtts.repetitionPenalty
     })
     onSaved?.(newSettings)
     onClose()
   }
 
   const handleVoiceSelect = (voiceKey: string, source: string) => {
-    setSelectedVoice(voiceKey)
-    setSelectedEngine(source === 'xtts' ? 'xtts' : 'piper')
+    setVoice(prev => ({
+      ...prev,
+      selectedVoice: voiceKey,
+      selectedEngine: source === 'xtts' ? 'xtts' : 'piper'
+    }))
   }
 
   const toggleTool = (tool: string) => {
-    if (autoAcceptTools.includes(tool)) {
-      setAutoAcceptTools(autoAcceptTools.filter(t => t !== tool))
-    } else {
-      setAutoAcceptTools([...autoAcceptTools, tool])
-    }
+    setGeneral(prev => ({
+      ...prev,
+      autoAcceptTools: prev.autoAcceptTools.includes(tool)
+        ? prev.autoAcceptTools.filter(t => t !== tool)
+        : [...prev.autoAcceptTools, tool]
+    }))
   }
 
   const addCustomTool = () => {
-    const trimmed = customTool.trim()
-    if (trimmed && !autoAcceptTools.includes(trimmed)) {
-      setAutoAcceptTools([...autoAcceptTools, trimmed])
-      setCustomTool('')
+    const trimmed = general.customTool.trim()
+    if (trimmed && !general.autoAcceptTools.includes(trimmed)) {
+      setGeneral(prev => ({
+        ...prev,
+        autoAcceptTools: [...prev.autoAcceptTools, trimmed],
+        customTool: ''
+      }))
     }
   }
 
   const removeCustomTool = (tool: string) => {
-    setAutoAcceptTools(autoAcceptTools.filter(t => t !== tool))
+    setGeneral(prev => ({
+      ...prev,
+      autoAcceptTools: prev.autoAcceptTools.filter(t => t !== tool)
+    }))
   }
 
   const handleInstallWhisperModel = async (model: string) => {
-    setInstallingModel(model)
+    setUI(prev => ({ ...prev, installingModel: model }))
     try {
       await window.electronAPI.voiceInstallWhisper?.(model)
       const status = await window.electronAPI.voiceCheckWhisper?.()
-      if (status) setWhisperStatus(status)
+      if (status) setVoice(prev => ({ ...prev, whisperStatus: status }))
     } catch (e) {
       console.error('Failed to install Whisper model:', e)
     }
-    setInstallingModel(null)
+    setUI(prev => ({ ...prev, installingModel: null }))
   }
 
-  const handleInstallVoice = async (voice: string) => {
-    setInstallingVoice(voice)
+  const handleInstallVoice = async (voiceToInstall: string) => {
+    setUI(prev => ({ ...prev, installingVoice: voiceToInstall }))
     try {
       // Install Piper if not installed
-      if (!ttsStatus.installed) {
+      if (!voice.ttsStatus.installed) {
         await window.electronAPI.voiceInstallPiper?.()
       }
-      await window.electronAPI.voiceInstallVoice?.(voice)
+      await window.electronAPI.voiceInstallVoice?.(voiceToInstall)
       const status = await window.electronAPI.voiceCheckTTS?.()
-      if (status) setTtsStatus(status)
+      if (status) setVoice(prev => ({ ...prev, ttsStatus: status }))
     } catch (e) {
       console.error('Failed to install voice:', e)
     }
-    setInstallingVoice(null)
+    setUI(prev => ({ ...prev, installingVoice: null }))
   }
 
   // Stop any playing preview
@@ -265,8 +347,7 @@ export function SettingsModal({ isOpen, onClose, onThemeChange, onSaved }: Setti
       previewAudioRef.current.src = ''
       previewAudioRef.current = null
     }
-    setPlayingPreview(null)
-    setPreviewLoading(null)
+    setUI(prev => ({ ...prev, playingPreview: null, previewLoading: null }))
   }
 
   // Preview a voice
@@ -275,13 +356,13 @@ export function SettingsModal({ isOpen, onClose, onThemeChange, onSaved }: Setti
     stopPreview()
 
     // If clicking the same voice, just stop
-    if (playingPreview === voiceKey) {
+    if (ui.playingPreview === voiceKey) {
       return
     }
 
     // For XTTS voices, synthesize sample text
     if (source === 'xtts') {
-      setPreviewLoading(voiceKey)
+      setUI(prev => ({ ...prev, previewLoading: voiceKey }))
       try {
         const result = await window.electronAPI.xttsSpeak?.(
           'Hello! This is a preview of my voice.',
@@ -292,23 +373,22 @@ export function SettingsModal({ isOpen, onClose, onThemeChange, onSaved }: Setti
           const audio = new Audio(`data:audio/wav;base64,${result.audioData}`)
           audio.volume = voiceVolume
           audio.onended = () => {
-            setPlayingPreview(null)
+            setUI(prev => ({ ...prev, playingPreview: null }))
             previewAudioRef.current = null
           }
           audio.onerror = () => {
-            setPlayingPreview(null)
+            setUI(prev => ({ ...prev, playingPreview: null }))
             previewAudioRef.current = null
           }
           previewAudioRef.current = audio
-          setPreviewLoading(null)
-          setPlayingPreview(voiceKey)
+          setUI(prev => ({ ...prev, previewLoading: null, playingPreview: voiceKey }))
           audio.play()
         } else {
-          setPreviewLoading(null)
+          setUI(prev => ({ ...prev, previewLoading: null }))
           console.error('Failed to preview XTTS voice:', result?.error)
         }
       } catch (e) {
-        setPreviewLoading(null)
+        setUI(prev => ({ ...prev, previewLoading: null }))
         console.error('Failed to preview XTTS voice:', e)
       }
       return
@@ -320,25 +400,25 @@ export function SettingsModal({ isOpen, onClose, onThemeChange, onSaved }: Setti
       const audio = new Audio(sampleUrl)
       audio.volume = voiceVolume
       audio.onended = () => {
-        setPlayingPreview(null)
+        setUI(prev => ({ ...prev, playingPreview: null }))
         previewAudioRef.current = null
       }
       audio.onerror = () => {
-        setPlayingPreview(null)
+        setUI(prev => ({ ...prev, playingPreview: null }))
         previewAudioRef.current = null
       }
       previewAudioRef.current = audio
-      setPlayingPreview(voiceKey)
+      setUI(prev => ({ ...prev, playingPreview: voiceKey }))
       audio.play()
       return
     }
 
     // For built-in/custom Piper voices, synthesize sample text
-    setPreviewLoading(voiceKey)
+    setUI(prev => ({ ...prev, previewLoading: voiceKey }))
     try {
       // Temporarily set the voice, speak, then restore
-      const originalVoice = selectedVoice
-      const originalEngine = selectedEngine
+      const originalVoice = voice.selectedVoice
+      const originalEngine = voice.selectedEngine
       await window.electronAPI.voiceApplySettings?.({
         ttsVoice: voiceKey,
         ttsEngine: 'piper',
@@ -351,30 +431,29 @@ export function SettingsModal({ isOpen, onClose, onThemeChange, onSaved }: Setti
       await window.electronAPI.voiceApplySettings?.({
         ttsVoice: originalVoice,
         ttsEngine: originalEngine,
-        ttsSpeed
+        ttsSpeed: voice.ttsSpeed
       })
 
       if (result?.success && result.audioData) {
         const audio = new Audio(`data:audio/wav;base64,${result.audioData}`)
         audio.volume = voiceVolume
         audio.onended = () => {
-          setPlayingPreview(null)
+          setUI(prev => ({ ...prev, playingPreview: null }))
           previewAudioRef.current = null
         }
         audio.onerror = () => {
-          setPlayingPreview(null)
+          setUI(prev => ({ ...prev, playingPreview: null }))
           previewAudioRef.current = null
         }
         previewAudioRef.current = audio
-        setPreviewLoading(null)
-        setPlayingPreview(voiceKey)
+        setUI(prev => ({ ...prev, previewLoading: null, playingPreview: voiceKey }))
         audio.play()
       } else {
-        setPreviewLoading(null)
+        setUI(prev => ({ ...prev, previewLoading: null }))
         console.error('Failed to preview voice:', result?.error)
       }
     } catch (e) {
-      setPreviewLoading(null)
+      setUI(prev => ({ ...prev, previewLoading: null }))
       console.error('Failed to preview voice:', e)
     }
   }
@@ -385,8 +464,7 @@ export function SettingsModal({ isOpen, onClose, onThemeChange, onSaved }: Setti
       return
     }
 
-    setRemovingTTS(true)
-    setTtsRemovalResult(null)
+    setUI(prev => ({ ...prev, removingTTS: true, ttsRemovalResult: null }))
 
     try {
       const workspace = await window.electronAPI.getWorkspace()
@@ -408,20 +486,20 @@ export function SettingsModal({ isOpen, onClose, onThemeChange, onSaved }: Setti
         }
       }
 
-      setTtsRemovalResult({ success, failed })
+      setUI(prev => ({ ...prev, ttsRemovalResult: { success, failed } }))
     } catch (e) {
       console.error('Failed to remove TTS instructions:', e)
-      setTtsRemovalResult({ success: 0, failed: 1 })
+      setUI(prev => ({ ...prev, ttsRemovalResult: { success: 0, failed: 1 } }))
     }
 
-    setRemovingTTS(false)
+    setUI(prev => ({ ...prev, removingTTS: false }))
   }
 
   if (!isOpen) return null
 
   return (
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal settings-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal settings-modal" ref={focusTrapRef} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Settings</h2>
           <button className="modal-close" onClick={onClose}>×</button>
@@ -433,7 +511,7 @@ export function SettingsModal({ isOpen, onClose, onThemeChange, onSaved }: Setti
               {themes.map((theme) => (
                 <button
                   key={theme.id}
-                  className={`theme-swatch ${selectedTheme === theme.id ? 'selected' : ''}`}
+                  className={`theme-swatch ${general.selectedTheme === theme.id ? 'selected' : ''}`}
                   onClick={() => handleThemeSelect(theme.id)}
                   title={theme.name}
                 >
@@ -468,8 +546,8 @@ export function SettingsModal({ isOpen, onClose, onThemeChange, onSaved }: Setti
             <div className="input-with-button">
               <input
                 type="text"
-                value={defaultProjectDir}
-                onChange={(e) => setDefaultProjectDir(e.target.value)}
+                value={general.defaultProjectDir}
+                onChange={(e) => setGeneral(prev => ({ ...prev, defaultProjectDir: e.target.value }))}
                 placeholder="Select a directory..."
                 readOnly
               />
@@ -491,7 +569,7 @@ export function SettingsModal({ isOpen, onClose, onThemeChange, onSaved }: Setti
               {COMMON_TOOLS.map((tool) => (
                 <button
                   key={tool.value}
-                  className={`tool-chip ${autoAcceptTools.includes(tool.value) ? 'selected' : ''}`}
+                  className={`tool-chip ${general.autoAcceptTools.includes(tool.value) ? 'selected' : ''}`}
                   onClick={() => toggleTool(tool.value)}
                   title={tool.value}
                 >
@@ -502,8 +580,8 @@ export function SettingsModal({ isOpen, onClose, onThemeChange, onSaved }: Setti
             <div className="custom-tool-input">
               <input
                 type="text"
-                value={customTool}
-                onChange={(e) => setCustomTool(e.target.value)}
+                value={general.customTool}
+                onChange={(e) => setGeneral(prev => ({ ...prev, customTool: e.target.value }))}
                 placeholder="Custom pattern (e.g., Bash(python:*))"
                 onKeyDown={(e) => e.key === 'Enter' && addCustomTool()}
               />
@@ -511,9 +589,9 @@ export function SettingsModal({ isOpen, onClose, onThemeChange, onSaved }: Setti
                 Add
               </button>
             </div>
-            {autoAcceptTools.filter(t => !COMMON_TOOLS.some(ct => ct.value === t)).length > 0 && (
+            {general.autoAcceptTools.filter(t => !COMMON_TOOLS.some(ct => ct.value === t)).length > 0 && (
               <div className="custom-tools-list">
-                {autoAcceptTools.filter(t => !COMMON_TOOLS.some(ct => ct.value === t)).map((tool) => (
+                {general.autoAcceptTools.filter(t => !COMMON_TOOLS.some(ct => ct.value === t)).map((tool) => (
                   <span key={tool} className="custom-tool-tag">
                     {tool}
                     <button onClick={() => removeCustomTool(tool)}>x</button>
@@ -530,13 +608,13 @@ export function SettingsModal({ isOpen, onClose, onThemeChange, onSaved }: Setti
             </p>
             <div className="permission-mode-options">
               {PERMISSION_MODES.map((mode) => (
-                <label key={mode.value} className={`permission-mode-option ${permissionMode === mode.value ? 'selected' : ''}`}>
+                <label key={mode.value} className={`permission-mode-option ${general.permissionMode === mode.value ? 'selected' : ''}`}>
                   <input
                     type="radio"
                     name="permissionMode"
                     value={mode.value}
-                    checked={permissionMode === mode.value}
-                    onChange={(e) => setPermissionMode(e.target.value)}
+                    checked={general.permissionMode === mode.value}
+                    onChange={(e) => setGeneral(prev => ({ ...prev, permissionMode: e.target.value }))}
                   />
                   <span className="mode-label">{mode.label}</span>
                   <span className="mode-desc">{mode.desc}</span>
@@ -552,13 +630,13 @@ export function SettingsModal({ isOpen, onClose, onThemeChange, onSaved }: Setti
             </p>
             <div className="permission-mode-options">
               {BACKEND_MODES.map((mode) => (
-                <label key={mode.value} className={`permission-mode-option ${backend === mode.value ? 'selected' : ''}`}>
+                <label key={mode.value} className={`permission-mode-option ${general.backend === mode.value ? 'selected' : ''}`}>
                   <input
                     type="radio"
                     name="backend"
                     value={mode.value}
-                    checked={backend === mode.value}
-                    onChange={(e) => setBackend(e.target.value)}
+                    checked={general.backend === mode.value}
+                    onChange={(e) => setGeneral(prev => ({ ...prev, backend: e.target.value }))}
                   />
                   <span className="mode-label">{mode.label}</span>
                   <span className="mode-desc">{mode.desc}</span>
@@ -601,14 +679,14 @@ export function SettingsModal({ isOpen, onClose, onThemeChange, onSaved }: Setti
             </p>
             <div className="voice-options">
               {WHISPER_MODELS.map((model) => {
-                const isInstalled = whisperStatus.models.includes(model.value)
-                const isInstalling = installingModel === model.value
+                const isInstalled = voice.whisperStatus.models.includes(model.value)
+                const isInstalling = ui.installingModel === model.value
                 const isActive = activeWhisperModel === model.value
                 return (
                   <div
                     key={model.value}
                     className={`voice-option ${isInstalled ? 'installed' : ''} ${isActive ? 'selected' : ''}`}
-                    onClick={() => isInstalled && setActiveWhisperModel(model.value as any)}
+                    onClick={() => isInstalled && setActiveWhisperModel(model.value)}
                     style={{ cursor: isInstalled ? 'pointer' : 'default' }}
                   >
                     <div className="voice-info">
@@ -638,29 +716,29 @@ export function SettingsModal({ isOpen, onClose, onThemeChange, onSaved }: Setti
               Piper voices and XTTS clones for Claude to speak responses aloud.
             </p>
             <div className="voice-options">
-              {installedVoices.length > 0 ? (
-                installedVoices.map((voice) => {
-                  const isSelected = selectedVoice === voice.key
-                  const isPlaying = playingPreview === voice.key
-                  const isLoading = previewLoading === voice.key
+              {voice.installedVoices.length > 0 ? (
+                voice.installedVoices.map((v) => {
+                  const isSelected = voice.selectedVoice === v.key
+                  const isPlaying = ui.playingPreview === v.key
+                  const isLoading = ui.previewLoading === v.key
                   return (
                     <div
-                      key={voice.key}
+                      key={v.key}
                       className={`voice-option installed ${isSelected ? 'selected' : ''}`}
-                      onClick={() => handleVoiceSelect(voice.key, voice.source)}
+                      onClick={() => handleVoiceSelect(v.key, v.source)}
                       style={{ cursor: 'pointer' }}
                     >
                       <div className="voice-info">
-                        <span className="voice-label">{voice.displayName}</span>
+                        <span className="voice-label">{v.displayName}</span>
                         <span className="voice-desc">
-                          {voice.source === 'builtin' ? 'Built-in' : voice.source === 'custom' ? 'Custom' : voice.source === 'xtts' ? 'XTTS Clone' : 'Downloaded'}
+                          {v.source === 'builtin' ? 'Built-in' : v.source === 'custom' ? 'Custom' : v.source === 'xtts' ? 'XTTS Clone' : 'Downloaded'}
                         </span>
                       </div>
                       <button
                         className={`voice-preview-btn ${isPlaying ? 'playing' : ''}`}
                         onClick={(e) => {
                           e.stopPropagation()
-                          handlePreview(voice.key, voice.source)
+                          handlePreview(v.key, v.source)
                         }}
                         disabled={isLoading}
                         title={isPlaying ? 'Stop preview' : 'Play preview'}
@@ -684,7 +762,7 @@ export function SettingsModal({ isOpen, onClose, onThemeChange, onSaved }: Setti
             </div>
             <button
               className="btn-secondary"
-              onClick={() => setShowVoiceBrowser(true)}
+              onClick={() => setUI(prev => ({ ...prev, showVoiceBrowser: true }))}
               style={{ marginTop: '8px' }}
             >
               Browse Voices...
@@ -694,15 +772,15 @@ export function SettingsModal({ isOpen, onClose, onThemeChange, onSaved }: Setti
             <div className="slider-group" style={{ marginTop: '16px' }}>
               <div className="slider-header">
                 <label>Speed</label>
-                <span className="slider-value">{ttsSpeed.toFixed(1)}x</span>
+                <span className="slider-value">{voice.ttsSpeed.toFixed(1)}x</span>
               </div>
               <input
                 type="range"
                 min="0.5"
                 max="2.0"
                 step="0.1"
-                value={ttsSpeed}
-                onChange={(e) => setTtsSpeed(parseFloat(e.target.value))}
+                value={voice.ttsSpeed}
+                onChange={(e) => setVoice(prev => ({ ...prev, ttsSpeed: parseFloat(e.target.value) }))}
                 className="slider"
               />
               <div className="slider-labels">
@@ -712,22 +790,22 @@ export function SettingsModal({ isOpen, onClose, onThemeChange, onSaved }: Setti
             </div>
 
             {/* XTTS Quality Settings - only show when XTTS voice selected */}
-            {selectedEngine === 'xtts' && (
+            {voice.selectedEngine === 'xtts' && (
               <div className="xtts-settings" style={{ marginTop: '16px', padding: '12px', background: 'var(--bg-secondary)', borderRadius: '8px' }}>
                 <label style={{ marginBottom: '12px', display: 'block', fontWeight: 600 }}>XTTS Quality Settings</label>
 
                 <div className="slider-group">
                   <div className="slider-header">
                     <label>Temperature</label>
-                    <span className="slider-value">{xttsTemperature.toFixed(2)}</span>
+                    <span className="slider-value">{xtts.temperature.toFixed(2)}</span>
                   </div>
                   <input
                     type="range"
                     min="0.1"
                     max="1.0"
                     step="0.05"
-                    value={xttsTemperature}
-                    onChange={(e) => setXttsTemperature(parseFloat(e.target.value))}
+                    value={xtts.temperature}
+                    onChange={(e) => setXtts(prev => ({ ...prev, temperature: parseFloat(e.target.value) }))}
                     className="slider"
                   />
                   <div className="slider-labels">
@@ -739,15 +817,15 @@ export function SettingsModal({ isOpen, onClose, onThemeChange, onSaved }: Setti
                 <div className="slider-group" style={{ marginTop: '12px' }}>
                   <div className="slider-header">
                     <label>Top-P</label>
-                    <span className="slider-value">{xttsTopP.toFixed(2)}</span>
+                    <span className="slider-value">{xtts.topP.toFixed(2)}</span>
                   </div>
                   <input
                     type="range"
                     min="0.1"
                     max="1.0"
                     step="0.05"
-                    value={xttsTopP}
-                    onChange={(e) => setXttsTopP(parseFloat(e.target.value))}
+                    value={xtts.topP}
+                    onChange={(e) => setXtts(prev => ({ ...prev, topP: parseFloat(e.target.value) }))}
                     className="slider"
                   />
                   <div className="slider-labels">
@@ -759,15 +837,15 @@ export function SettingsModal({ isOpen, onClose, onThemeChange, onSaved }: Setti
                 <div className="slider-group" style={{ marginTop: '12px' }}>
                   <div className="slider-header">
                     <label>Repetition Penalty</label>
-                    <span className="slider-value">{xttsRepetitionPenalty.toFixed(1)}</span>
+                    <span className="slider-value">{xtts.repetitionPenalty.toFixed(1)}</span>
                   </div>
                   <input
                     type="range"
                     min="1.0"
                     max="5.0"
                     step="0.5"
-                    value={xttsRepetitionPenalty}
-                    onChange={(e) => setXttsRepetitionPenalty(parseFloat(e.target.value))}
+                    value={xtts.repetitionPenalty}
+                    onChange={(e) => setXtts(prev => ({ ...prev, repetitionPenalty: parseFloat(e.target.value) }))}
                     className="slider"
                   />
                   <div className="slider-labels">
@@ -788,15 +866,15 @@ export function SettingsModal({ isOpen, onClose, onThemeChange, onSaved }: Setti
             <button
               className="btn-danger"
               onClick={handleRemoveTTSFromAllProjects}
-              disabled={removingTTS}
+              disabled={ui.removingTTS}
               style={{ marginTop: '8px' }}
             >
-              {removingTTS ? 'Removing...' : 'Remove TTS from All Projects'}
+              {ui.removingTTS ? 'Removing...' : 'Remove TTS from All Projects'}
             </button>
-            {ttsRemovalResult && (
-              <p className="form-hint" style={{ marginTop: '8px', color: ttsRemovalResult.failed > 0 ? 'var(--warning)' : 'var(--success)' }}>
-                Removed from {ttsRemovalResult.success} project{ttsRemovalResult.success !== 1 ? 's' : ''}.
-                {ttsRemovalResult.failed > 0 && ` Failed: ${ttsRemovalResult.failed}.`}
+            {ui.ttsRemovalResult && (
+              <p className="form-hint" style={{ marginTop: '8px', color: ui.ttsRemovalResult.failed > 0 ? 'var(--warning)' : 'var(--success)' }}>
+                Removed from {ui.ttsRemovalResult.success} project{ui.ttsRemovalResult.success !== 1 ? 's' : ''}.
+                {ui.ttsRemovalResult.failed > 0 && ` Failed: ${ui.ttsRemovalResult.failed}.`}
               </p>
             )}
           </div>
@@ -822,15 +900,17 @@ export function SettingsModal({ isOpen, onClose, onThemeChange, onSaved }: Setti
       </div>
 
       <VoiceBrowserModal
-        isOpen={showVoiceBrowser}
+        isOpen={ui.showVoiceBrowser}
         onClose={() => {
-          setShowVoiceBrowser(false)
+          setUI(prev => ({ ...prev, showVoiceBrowser: false }))
           refreshInstalledVoices()
         }}
         onVoiceSelect={(voiceKey, engine) => {
-          // Don't prefix with 'xtts:' - selectedEngine tracks the engine type
-          setSelectedVoice(voiceKey)
-          setSelectedEngine(engine === 'xtts' ? 'xtts' : 'piper')
+          setVoice(prev => ({
+            ...prev,
+            selectedVoice: voiceKey,
+            selectedEngine: engine === 'xtts' ? 'xtts' : 'piper'
+          }))
           window.electronAPI.voiceSetVoice?.({ voice: voiceKey, engine })
         }}
       />

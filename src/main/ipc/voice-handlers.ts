@@ -89,217 +89,370 @@ export function registerVoiceHandlers(getMainWindow: () => BrowserWindow | null)
 
   // Whisper (STT)
   ipcMain.handle('voice:checkWhisper', async () => {
-    return voiceManager.checkWhisper()
+    try {
+      return await voiceManager.checkWhisper()
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('voice:installWhisper', async (_, model: WhisperModelName) => {
-    return voiceManager.downloadWhisperModel(model, (status, percent) => {
-      getMainWindow()?.webContents.send('install:progress', { type: 'whisper', status, percent })
-    })
+    try {
+      return await voiceManager.downloadWhisperModel(model, (status, percent) => {
+        getMainWindow()?.webContents.send('install:progress', { type: 'whisper', status, percent })
+      })
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('voice:transcribe', async (_, pcmData: Float32Array) => {
-    return voiceManager.transcribe(pcmData)
+    try {
+      return await voiceManager.transcribe(pcmData)
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('voice:setWhisperModel', async (_, model: WhisperModelName) => {
-    voiceManager.setWhisperModel(model)
-    return { success: true }
+    try {
+      voiceManager.setWhisperModel(model)
+      return { success: true }
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   // TTS
   ipcMain.handle('voice:checkTTS', async () => {
-    return voiceManager.checkTTS()
+    try {
+      return await voiceManager.checkTTS()
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
+  })
+
+  // Combined status check for Whisper and TTS in a single IPC call
+  ipcMain.handle('voice:getFullStatus', async () => {
+    try {
+      return await voiceManager.getFullVoiceStatus()
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('voice:installPiper', async () => {
-    return voiceManager.installPiper((status, percent) => {
-      getMainWindow()?.webContents.send('install:progress', { type: 'piper', status, percent })
-    })
+    try {
+      return await voiceManager.installPiper((status, percent) => {
+        getMainWindow()?.webContents.send('install:progress', { type: 'piper', status, percent })
+      })
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('voice:installVoice', async (_, voice: PiperVoiceName) => {
-    return voiceManager.downloadPiperVoice(voice, (status, percent) => {
-      getMainWindow()?.webContents.send('install:progress', { type: 'piper-voice', status, percent })
-    })
+    try {
+      return await voiceManager.downloadPiperVoice(voice, (status, percent) => {
+        getMainWindow()?.webContents.send('install:progress', { type: 'piper-voice', status, percent })
+      })
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('voice:speak', async (_, text: string) => {
-    return voiceManager.speak(text)
+    try {
+      return await voiceManager.speak(text)
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('voice:stopSpeaking', async () => {
-    voiceManager.stopSpeaking()
-    return { success: true }
+    try {
+      voiceManager.stopSpeaking()
+      return { success: true }
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('voice:getVoices', async () => {
-    const installed = voiceManager.getInstalledPiperVoices()
-    const all = Object.entries(PIPER_VOICES).map(([id, info]) => ({
-      id,
-      description: info.description,
-      license: info.license,
-      installed: installed.includes(id)
-    }))
-    return { installed, all }
+    try {
+      const installed = voiceManager.getInstalledPiperVoices()
+      const all = Object.entries(PIPER_VOICES).map(([id, info]) => ({
+        id,
+        description: info.description,
+        license: info.license,
+        installed: installed.includes(id)
+      }))
+      return { installed, all }
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('voice:getWhisperModels', async () => {
-    const installedModels = voiceManager.getInstalledWhisperModels()
-    const all = Object.entries(WHISPER_MODELS).map(([id, info]) => ({
-      id,
-      size: info.size,
-      installed: installedModels.includes(id as WhisperModelName)
-    }))
-    return { installed: installedModels, all }
+    try {
+      const installedModels = voiceManager.getInstalledWhisperModels()
+      // Cast keys to WhisperModelName - safe since we're iterating over WHISPER_MODELS keys
+      const modelIds = Object.keys(WHISPER_MODELS) as WhisperModelName[]
+      const all = modelIds.map(id => ({
+        id,
+        size: WHISPER_MODELS[id].size,
+        installed: installedModels.includes(id)
+      }))
+      return { installed: installedModels, all }
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('voice:setVoice', async (_, voice: string | { voice: string; engine: 'piper' | 'xtts' }) => {
-    if (typeof voice === 'string') {
-      voiceManager.setTTSVoice(voice)
-    } else {
-      voiceManager.setTTSVoice(voice.voice, voice.engine)
+    try {
+      if (typeof voice === 'string') {
+        voiceManager.setTTSVoice(voice)
+      } else {
+        voiceManager.setTTSVoice(voice.voice, voice.engine)
+      }
+      return { success: true }
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
     }
-    return { success: true }
   })
 
   ipcMain.handle('voice:getSettings', async () => {
-    return voiceManager.getSettings()
+    try {
+      return voiceManager.getSettings()
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('voice:applySettings', async (_, settings: any) => {
-    voiceManager.applySettings(settings)
-    return { success: true }
+    try {
+      voiceManager.applySettings(settings)
+      return { success: true }
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
-  ipcMain.handle('voice:fetchCatalog', async () => {
-    return await voiceManager.fetchVoicesCatalog()
+  ipcMain.handle('voice:fetchCatalog', async (_, forceRefresh?: boolean) => {
+    try {
+      return await voiceManager.fetchVoicesCatalog(forceRefresh ?? false)
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('voice:downloadFromCatalog', async (_, voiceKey: string) => {
-    return await voiceManager.downloadVoiceFromCatalog(voiceKey)
+    try {
+      return await voiceManager.downloadVoiceFromCatalog(voiceKey)
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('voice:getInstalled', async () => {
-    return voiceManager.getInstalledVoices()
+    try {
+      return voiceManager.getInstalledVoices()
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('voice:importCustom', async () => {
-    const result = await dialog.showOpenDialog(getMainWindow()!, {
-      title: 'Select Piper Voice Model',
-      filters: [{ name: 'ONNX Model', extensions: ['onnx'] }],
-      properties: ['openFile']
-    })
+    try {
+      const win = getMainWindow()
+      if (!win) {
+        return { success: false, error: 'No window available' }
+      }
 
-    if (result.canceled || !result.filePaths[0]) {
-      return { success: false, error: 'No file selected' }
+      const result = await dialog.showOpenDialog(win, {
+        title: 'Select Piper Voice Model',
+        filters: [{ name: 'ONNX Model', extensions: ['onnx'] }],
+        properties: ['openFile']
+      })
+
+      if (result.canceled || !result.filePaths[0]) {
+        return { success: false, error: 'No file selected' }
+      }
+
+      const onnxPath = result.filePaths[0]
+      const configPath = onnxPath + '.json'
+      if (!existsSync(configPath)) {
+        return { success: false, error: 'Config file (.onnx.json) not found next to model file' }
+      }
+
+      return await voiceManager.importCustomVoiceFiles(onnxPath, configPath)
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
     }
-
-    const onnxPath = result.filePaths[0]
-    const configPath = onnxPath + '.json'
-    if (!existsSync(configPath)) {
-      return { success: false, error: 'Config file (.onnx.json) not found next to model file' }
-    }
-
-    return await voiceManager.importCustomVoiceFiles(onnxPath, configPath)
   })
 
   ipcMain.handle('voice:removeCustom', async (_, voiceKey: string) => {
-    return voiceManager.removeCustomVoice(voiceKey)
+    try {
+      return voiceManager.removeCustomVoice(voiceKey)
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('voice:openCustomFolder', async () => {
-    const { shell } = require('electron')
-    const customDir = voiceManager.getCustomVoicesDir()
-    if (!existsSync(customDir)) {
-      mkdirSync(customDir, { recursive: true })
+    try {
+      const { shell } = require('electron')
+      const customDir = voiceManager.getCustomVoicesDir()
+      if (!existsSync(customDir)) {
+        mkdirSync(customDir, { recursive: true })
+      }
+      shell.openPath(customDir)
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
     }
-    shell.openPath(customDir)
   })
 
   // XTTS (voice cloning)
   ipcMain.handle('xtts:check', async () => {
-    return await xttsManager.checkInstallation()
+    try {
+      return await xttsManager.checkInstallation()
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('xtts:install', async () => {
-    return await xttsManager.install()
+    try {
+      return await xttsManager.install()
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('xtts:createVoice', async (_, { audioPath, name, language }) => {
-    return await xttsManager.createVoice(audioPath, name, language)
+    try {
+      return await xttsManager.createVoice(audioPath, name, language)
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('xtts:getVoices', async () => {
-    return xttsManager.getVoices()
+    try {
+      return xttsManager.getVoices()
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('xtts:deleteVoice', async (_, voiceId: string) => {
-    return xttsManager.deleteVoice(voiceId)
+    try {
+      return xttsManager.deleteVoice(voiceId)
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('xtts:speak', async (_, { text, voiceId, language }) => {
-    return await xttsManager.speak(text, voiceId, language)
+    try {
+      return await xttsManager.speak(text, voiceId, language)
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('xtts:selectAudio', async () => {
-    const result = await dialog.showOpenDialog(getMainWindow()!, {
-      title: 'Select Voice Sample Audio',
-      filters: [{ name: 'Audio Files', extensions: ['wav', 'mp3', 'ogg', 'flac', 'm4a'] }],
-      properties: ['openFile']
-    })
+    try {
+      const win = getMainWindow()
+      if (!win) {
+        return { success: false, error: 'No window available' }
+      }
 
-    if (result.canceled || !result.filePaths[0]) {
-      return { success: false, error: 'No file selected' }
+      const result = await dialog.showOpenDialog(win, {
+        title: 'Select Voice Sample Audio',
+        filters: [{ name: 'Audio Files', extensions: ['wav', 'mp3', 'ogg', 'flac', 'm4a'] }],
+        properties: ['openFile']
+      })
+
+      if (result.canceled || !result.filePaths[0]) {
+        return { success: false, error: 'No file selected' }
+      }
+
+      return { success: true, path: result.filePaths[0] }
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
     }
-
-    return { success: true, path: result.filePaths[0] }
   })
 
   ipcMain.handle('xtts:getLanguages', async () => {
-    return XTTS_LANGUAGES
+    try {
+      return XTTS_LANGUAGES
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('xtts:getSampleVoices', async () => {
-    return XTTS_SAMPLE_VOICES.map(s => ({
-      ...s,
-      installed: xttsManager.isSampleVoiceInstalled(s.id)
-    }))
+    try {
+      return XTTS_SAMPLE_VOICES.map(s => ({
+        ...s,
+        installed: xttsManager.isSampleVoiceInstalled(s.id)
+      }))
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('xtts:downloadSampleVoice', async (_, sampleId: string) => {
-    return xttsManager.downloadSampleVoice(sampleId)
+    try {
+      return await xttsManager.downloadSampleVoice(sampleId)
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('xtts:getMediaDuration', async (_, filePath: string) => {
-    return xttsManager.getMediaDuration(filePath)
+    try {
+      return await xttsManager.getMediaDuration(filePath)
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('xtts:extractAudioClip', async (_, { inputPath, startTime, endTime }) => {
-    return xttsManager.extractAudioClip(inputPath, startTime, endTime)
+    try {
+      return await xttsManager.extractAudioClip(inputPath, startTime, endTime)
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
+    }
   })
 
   ipcMain.handle('xtts:selectMediaFile', async () => {
-    const result = await dialog.showOpenDialog({
-      properties: ['openFile'],
-      filters: [
-        { name: 'Media Files', extensions: ['mp4', 'webm', 'mkv', 'avi', 'mov', 'mp3', 'wav', 'ogg', 'flac', 'm4a'] },
-        { name: 'All Files', extensions: ['*'] }
-      ]
-    })
+    try {
+      const result = await dialog.showOpenDialog({
+        properties: ['openFile'],
+        filters: [
+          { name: 'Media Files', extensions: ['mp4', 'webm', 'mkv', 'avi', 'mov', 'mp3', 'wav', 'ogg', 'flac', 'm4a'] },
+          { name: 'All Files', extensions: ['*'] }
+        ]
+      })
 
-    if (result.canceled || result.filePaths.length === 0) {
-      return { success: false }
-    }
+      if (result.canceled || result.filePaths.length === 0) {
+        return { success: false }
+      }
 
-    const filePath = result.filePaths[0]
-    const duration = await xttsManager.getMediaDuration(filePath)
+      const filePath = result.filePaths[0]
+      const duration = await xttsManager.getMediaDuration(filePath)
 
-    return {
-      success: true,
-      path: filePath,
-      duration: duration.success ? duration.duration : undefined,
-      error: duration.error
+      return {
+        success: true,
+        path: filePath,
+        duration: duration.success ? duration.duration : undefined,
+        error: duration.error
+      }
+    } catch (e) {
+      return { success: false, error: e instanceof Error ? e.message : String(e) }
     }
   })
 }

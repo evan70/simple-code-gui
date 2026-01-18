@@ -1,10 +1,52 @@
 import { homedir } from 'os'
 import { join } from 'path'
 import { existsSync, mkdirSync, writeFileSync, readFileSync, rmSync, readdirSync } from 'fs'
-import { exec } from 'child_process'
-import { promisify } from 'util'
+import { spawn } from 'child_process'
 
-const execAsync = promisify(exec)
+// Safe spawn wrapper that returns a promise - prevents shell injection by using argument arrays
+function spawnAsync(command: string, args: string[], options?: { cwd?: string }): Promise<{ stdout: string; stderr: string }> {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(command, args, {
+      ...options,
+      shell: false,  // Critical: disable shell to prevent injection
+      stdio: ['pipe', 'pipe', 'pipe']
+    })
+
+    let stdout = ''
+    let stderr = ''
+
+    proc.stdout?.on('data', (data) => { stdout += data.toString() })
+    proc.stderr?.on('data', (data) => { stderr += data.toString() })
+
+    proc.on('close', (code) => {
+      if (code === 0) {
+        resolve({ stdout, stderr })
+      } else {
+        reject(new Error(`Command failed with code ${code}: ${stderr || stdout}`))
+      }
+    })
+
+    proc.on('error', (err) => {
+      reject(err)
+    })
+  })
+}
+
+// Validate GitHub repository URL to prevent injection
+function isValidGitHubUrl(url: string): boolean {
+  // Only allow well-formed GitHub HTTPS URLs
+  // Pattern: https://github.com/owner/repo or https://github.com/owner/repo.git
+  const githubPattern = /^https:\/\/github\.com\/[a-zA-Z0-9_.-]+\/[a-zA-Z0-9_.-]+(\.git)?$/
+  return githubPattern.test(url)
+}
+
+// Validate npm package name to prevent injection
+function isValidNpmPackageName(name: string): boolean {
+  // npm package names: lowercase, may include @scope/, hyphens, dots, underscores
+  // Must not contain shell metacharacters
+  const npmPattern = /^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/
+  return npmPattern.test(name) && name.length <= 214
+}
 
 // Types
 export interface Extension {
@@ -361,6 +403,11 @@ export class ExtensionManager {
       return { success: false, error: 'No repository URL provided' }
     }
 
+    // Validate repository URL to prevent shell injection
+    if (!isValidGitHubUrl(extension.repo)) {
+      return { success: false, error: 'Invalid repository URL. Only GitHub HTTPS URLs are allowed (https://github.com/owner/repo)' }
+    }
+
     const config = this.loadConfig()
 
     // Check if already installed
@@ -384,7 +431,8 @@ export class ExtensionManager {
       }
       mkdirSync(installDir, { recursive: true })
 
-      await execAsync(`git clone --depth 1 "${extension.repo}" "${installDir}"`)
+      // Use spawn with argument array to prevent shell injection
+      await spawnAsync('git', ['clone', '--depth', '1', extension.repo, installDir])
 
       // Add to installed list
       const installed: InstalledExtension = {
@@ -412,6 +460,11 @@ export class ExtensionManager {
       return { success: false, error: 'No npm package name provided' }
     }
 
+    // Validate npm package name to prevent shell injection
+    if (!isValidNpmPackageName(extension.npm)) {
+      return { success: false, error: 'Invalid npm package name. Package names must follow npm naming conventions.' }
+    }
+
     const config = this.loadConfig()
 
     // Check if already installed
@@ -421,8 +474,8 @@ export class ExtensionManager {
     }
 
     try {
-      // Install npm package globally
-      await execAsync(`npm install -g "${extension.npm}"`)
+      // Install npm package globally using spawn with argument array
+      await spawnAsync('npm', ['install', '-g', extension.npm])
 
       // Add to MCP config
       const mcpConfigPath = getMcpConfigPath()
@@ -527,7 +580,8 @@ export class ExtensionManager {
       }
 
       try {
-        await execAsync('git pull', { cwd: installDir })
+        // Use spawn with argument array to prevent shell injection
+        await spawnAsync('git', ['pull'], { cwd: installDir })
         return { success: true }
       } catch (error: any) {
         return { success: false, error: error.message }
@@ -535,8 +589,14 @@ export class ExtensionManager {
     }
 
     if (extension.type === 'mcp' && extension.npm) {
+      // Validate npm package name
+      if (!isValidNpmPackageName(extension.npm)) {
+        return { success: false, error: 'Invalid npm package name' }
+      }
+
       try {
-        await execAsync(`npm update -g "${extension.npm}"`)
+        // Use spawn with argument array to prevent shell injection
+        await spawnAsync('npm', ['update', '-g', extension.npm])
         return { success: true }
       } catch (error: any) {
         return { success: false, error: error.message }
@@ -583,9 +643,10 @@ export class ExtensionManager {
         }
 
         // Optionally uninstall npm package
-        if (extension.npm) {
+        if (extension.npm && isValidNpmPackageName(extension.npm)) {
           try {
-            await execAsync(`npm uninstall -g "${extension.npm}"`)
+            // Use spawn with argument array to prevent shell injection
+            await spawnAsync('npm', ['uninstall', '-g', extension.npm])
           } catch {
             // Ignore uninstall errors
           }

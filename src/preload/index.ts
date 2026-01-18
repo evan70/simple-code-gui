@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer, webUtils } from 'electron'
+import { contextBridge, ipcRenderer, webUtils, IpcRendererEvent } from 'electron'
 
 export interface Settings {
   defaultProjectDir: string
@@ -12,14 +12,121 @@ export interface Settings {
   backend?: 'claude' | 'gemini' | 'codex' | 'opencode' | 'aider'
 }
 
+// Workspace types
+export interface ProjectCategory {
+  id: string
+  name: string
+  collapsed: boolean
+  order: number
+}
+
+export interface Project {
+  path: string
+  name: string
+  executable?: string
+  apiPort?: number
+  apiAutoStart?: boolean
+  apiSessionMode?: 'existing' | 'new-keep' | 'new-close'
+  apiModel?: 'default' | 'opus' | 'sonnet' | 'haiku'
+  autoAcceptTools?: string[]
+  permissionMode?: string
+  color?: string
+  ttsVoice?: string
+  ttsEngine?: 'piper' | 'xtts'
+  backend?: 'default' | 'claude' | 'gemini' | 'codex' | 'opencode'
+  categoryId?: string
+  order?: number
+}
+
+export interface OpenTab {
+  id: string
+  projectPath: string
+  sessionId?: string
+  title: string
+  ptyId: string
+  backend?: string
+}
+
+export interface Workspace {
+  projects: Project[]
+  openTabs: OpenTab[]
+  activeTabId: string | null
+  viewMode?: 'tabs' | 'tiled'
+  tileLayout?: TileLayout[]
+  categories: ProjectCategory[]
+}
+
+export interface TileLayout {
+  id: string
+  x: number
+  y: number
+  width: number
+  height: number
+}
+
+// Session types
+export interface Session {
+  sessionId: string
+  slug: string
+}
+
+// Beads task types
+export interface BeadsTask {
+  id: string
+  title: string
+  status: string
+  priority?: number
+  created?: string
+  blockers?: string[]
+  description?: string
+  issue_type?: string
+  created_at?: string
+  updated_at?: string
+  dependency_count?: number
+  dependent_count?: number
+}
+
+export interface BeadsCloseResult {
+  taskId: string
+  status: string
+}
+
+// Voice settings types
+export interface VoiceSettings {
+  whisperModel?: string
+  ttsEngine?: 'piper' | 'xtts' | 'openvoice'
+  ttsVoice?: string
+  ttsSpeed?: number
+  microphoneId?: string | null
+  readBehavior?: 'immediate' | 'pause' | 'manual'
+  skipOnNew?: boolean
+  xttsTemperature?: number
+  xttsTopK?: number
+  xttsTopP?: number
+  xttsRepetitionPenalty?: number
+}
+
+// Extension types
+export interface Extension {
+  id: string
+  name: string
+  description: string
+  type: 'skill' | 'mcp' | 'agent'
+  repo?: string
+  npm?: string
+  commands?: string[]
+  tags?: string[]
+  configSchema?: Record<string, unknown>
+}
+
 export interface ElectronAPI {
   // Workspace
-  getWorkspace: () => Promise<any>
-  saveWorkspace: (workspace: any) => Promise<void>
+  getWorkspace: () => Promise<Workspace>
+  saveWorkspace: (workspace: Workspace) => Promise<void>
   addProject: () => Promise<string | null>
 
   // Sessions
-  discoverSessions: (projectPath: string, backend?: 'claude' | 'opencode') => Promise<any[]>
+  discoverSessions: (projectPath: string, backend?: 'claude' | 'opencode') => Promise<Session[]>
 
   // Settings
   getSettings: () => Promise<Settings>
@@ -78,14 +185,17 @@ export interface ElectronAPI {
   beadsCheck: (cwd: string) => Promise<{ installed: boolean; initialized: boolean }>
   beadsInit: (cwd: string) => Promise<{ success: boolean; error?: string }>
   beadsInstall: () => Promise<{ success: boolean; error?: string; method?: string; needsPython?: boolean }>
-  beadsReady: (cwd: string) => Promise<{ success: boolean; tasks?: any[]; error?: string }>
-  beadsList: (cwd: string) => Promise<{ success: boolean; tasks?: any[]; error?: string }>
-  beadsShow: (cwd: string, taskId: string) => Promise<{ success: boolean; task?: any; error?: string }>
-  beadsCreate: (cwd: string, title: string, description?: string, priority?: number, type?: string, labels?: string) => Promise<{ success: boolean; task?: any; error?: string }>
-  beadsComplete: (cwd: string, taskId: string) => Promise<{ success: boolean; result?: any; error?: string }>
+  beadsReady: (cwd: string) => Promise<{ success: boolean; tasks?: BeadsTask[]; error?: string }>
+  beadsList: (cwd: string) => Promise<{ success: boolean; tasks?: BeadsTask[]; error?: string }>
+  beadsShow: (cwd: string, taskId: string) => Promise<{ success: boolean; task?: BeadsTask; error?: string }>
+  beadsCreate: (cwd: string, title: string, description?: string, priority?: number, type?: string, labels?: string) => Promise<{ success: boolean; task?: BeadsTask; error?: string }>
+  beadsComplete: (cwd: string, taskId: string) => Promise<{ success: boolean; result?: BeadsCloseResult; error?: string }>
   beadsDelete: (cwd: string, taskId: string) => Promise<{ success: boolean; error?: string }>
   beadsStart: (cwd: string, taskId: string) => Promise<{ success: boolean; error?: string }>
   beadsUpdate: (cwd: string, taskId: string, status?: string, title?: string, description?: string, priority?: number) => Promise<{ success: boolean; error?: string }>
+  beadsWatch: (cwd: string) => Promise<{ success: boolean; error?: string }>
+  beadsUnwatch: (cwd: string) => Promise<{ success: boolean; error?: string }>
+  onBeadsTasksChanged: (callback: (data: { cwd: string }) => void) => () => void
 
   // TTS instructions (CLAUDE.md)
   ttsInstallInstructions: (projectPath: string) => Promise<{ success: boolean }>
@@ -97,6 +207,10 @@ export interface ElectronAPI {
   voiceTranscribe: (pcmData: Float32Array) => Promise<{ success: boolean; text?: string; error?: string }>
   voiceSetWhisperModel: (model: string) => Promise<{ success: boolean }>
   voiceCheckTTS: () => Promise<{ installed: boolean; engine: string | null; voices: string[]; currentVoice: string | null }>
+  voiceGetFullStatus: () => Promise<{
+    whisper: { installed: boolean; models: string[]; currentModel: string | null }
+    tts: { installed: boolean; engine: string | null; voices: string[]; currentVoice: string | null }
+  }>
   voiceInstallPiper: () => Promise<{ success: boolean; error?: string }>
   voiceInstallVoice: (voice: string) => Promise<{ success: boolean; error?: string }>
   voiceSpeak: (text: string) => Promise<{ success: boolean; audioData?: string; error?: string }>
@@ -104,11 +218,11 @@ export interface ElectronAPI {
   voiceGetVoices: () => Promise<{ installed: string[]; all: Array<{ id: string; description: string; license: string; installed: boolean }> }>
   voiceGetWhisperModels: () => Promise<{ installed: string[]; all: Array<{ id: string; size: number; installed: boolean }> }>
   voiceSetVoice: (voice: string | { voice: string; engine: 'piper' | 'xtts' }) => Promise<{ success: boolean }>
-  voiceGetSettings: () => Promise<any>
-  voiceApplySettings: (settings: any) => Promise<{ success: boolean }>
+  voiceGetSettings: () => Promise<VoiceSettings>
+  voiceApplySettings: (settings: Partial<VoiceSettings>) => Promise<{ success: boolean }>
 
   // Voice catalog (browse & download from Hugging Face)
-  voiceFetchCatalog: () => Promise<Array<{
+  voiceFetchCatalog: (forceRefresh?: boolean) => Promise<Array<{
     key: string
     name: string
     language: { code: string; name_english: string; country_english: string }
@@ -216,7 +330,7 @@ export interface ElectronAPI {
       description: string
       type: 'skill' | 'mcp' | 'agent'
       npm?: string
-      configSchema?: Record<string, any>
+      configSchema?: Record<string, unknown>
       tags?: string[]
     }>
     agents: Array<{
@@ -238,8 +352,8 @@ export interface ElectronAPI {
     commands?: string[]
     tags?: string[]
   } | null>
-  extensionsInstallSkill: (extension: any, scope?: 'global' | 'project', projectPath?: string) => Promise<{ success: boolean; error?: string }>
-  extensionsInstallMcp: (extension: any, config?: Record<string, any>) => Promise<{ success: boolean; error?: string }>
+  extensionsInstallSkill: (extension: Extension, scope?: 'global' | 'project', projectPath?: string) => Promise<{ success: boolean; error?: string }>
+  extensionsInstallMcp: (extension: Extension, config?: Record<string, unknown>) => Promise<{ success: boolean; error?: string }>
   extensionsRemove: (extensionId: string) => Promise<{ success: boolean; error?: string }>
   extensionsUpdate: (extensionId: string) => Promise<{ success: boolean; error?: string }>
   extensionsGetInstalled: () => Promise<Array<{
@@ -255,7 +369,7 @@ export interface ElectronAPI {
     enabled: boolean
     scope: 'global' | 'project'
     projectPath?: string
-    config?: Record<string, any>
+    config?: Record<string, unknown>
   }>>
   extensionsGetForProject: (projectPath: string) => Promise<Array<{
     id: string
@@ -270,8 +384,8 @@ export interface ElectronAPI {
     extensionId: string
     extensionName: string
   }>>
-  extensionsGetConfig: (extensionId: string) => Promise<Record<string, any> | null>
-  extensionsSetConfig: (extensionId: string, config: Record<string, any>) => Promise<{ success: boolean; error?: string }>
+  extensionsGetConfig: (extensionId: string) => Promise<Record<string, unknown> | null>
+  extensionsSetConfig: (extensionId: string, config: Record<string, unknown>) => Promise<{ success: boolean; error?: string }>
   extensionsEnableForProject: (extensionId: string, projectPath: string) => Promise<{ success: boolean; error?: string }>
   extensionsDisableForProject: (extensionId: string, projectPath: string) => Promise<{ success: boolean; error?: string }>
   extensionsAddCustomUrl: (url: string) => Promise<{ success: boolean }>
@@ -307,7 +421,7 @@ const api: ElectronAPI = {
   gitInstall: () => ipcRenderer.invoke('git:install'),
   pythonInstall: () => ipcRenderer.invoke('python:install'),
   onInstallProgress: (callback) => {
-    const handler = (_: any, data: { type: string; status: string; percent?: number }) => callback(data)
+    const handler = (_: IpcRendererEvent, data: { type: string; status: string; percent?: number }) => callback(data)
     ipcRenderer.on('install:progress', handler)
     return () => ipcRenderer.removeListener('install:progress', handler)
   },
@@ -346,6 +460,13 @@ const api: ElectronAPI = {
   beadsDelete: (cwd, taskId) => ipcRenderer.invoke('beads:delete', { cwd, taskId }),
   beadsStart: (cwd, taskId) => ipcRenderer.invoke('beads:start', { cwd, taskId }),
   beadsUpdate: (cwd, taskId, status, title, description, priority) => ipcRenderer.invoke('beads:update', { cwd, taskId, status, title, description, priority }),
+  beadsWatch: (cwd) => ipcRenderer.invoke('beads:watch', cwd),
+  beadsUnwatch: (cwd) => ipcRenderer.invoke('beads:unwatch', cwd),
+  onBeadsTasksChanged: (callback) => {
+    const handler = (_: IpcRendererEvent, data: { cwd: string }) => callback(data)
+    ipcRenderer.on('beads:tasks-changed', handler)
+    return () => ipcRenderer.removeListener('beads:tasks-changed', handler)
+  },
 
   // TTS instructions (CLAUDE.md)
   ttsInstallInstructions: (projectPath) => ipcRenderer.invoke('tts:installInstructions', projectPath),
@@ -357,6 +478,7 @@ const api: ElectronAPI = {
   voiceTranscribe: (pcmData) => ipcRenderer.invoke('voice:transcribe', pcmData),
   voiceSetWhisperModel: (model) => ipcRenderer.invoke('voice:setWhisperModel', model),
   voiceCheckTTS: () => ipcRenderer.invoke('voice:checkTTS'),
+  voiceGetFullStatus: () => ipcRenderer.invoke('voice:getFullStatus'),
   voiceInstallPiper: () => ipcRenderer.invoke('voice:installPiper'),
   voiceInstallVoice: (voice) => ipcRenderer.invoke('voice:installVoice', voice),
   voiceSpeak: (text) => ipcRenderer.invoke('voice:speak', text),
@@ -368,7 +490,7 @@ const api: ElectronAPI = {
   voiceApplySettings: (settings) => ipcRenderer.invoke('voice:applySettings', settings),
 
   // Voice catalog
-  voiceFetchCatalog: () => ipcRenderer.invoke('voice:fetchCatalog'),
+  voiceFetchCatalog: (forceRefresh) => ipcRenderer.invoke('voice:fetchCatalog', forceRefresh),
   voiceDownloadFromCatalog: (voiceKey) => ipcRenderer.invoke('voice:downloadFromCatalog', voiceKey),
   voiceGetInstalled: () => ipcRenderer.invoke('voice:getInstalled'),
   voiceImportCustom: () => ipcRenderer.invoke('voice:importCustom'),
@@ -398,19 +520,19 @@ const api: ElectronAPI = {
   setPtyBackend: (id, backend) => ipcRenderer.invoke('pty:set-backend', { id, backend }),
 
   onPtyData: (id, callback) => {
-    const handler = (_: any, data: string) => callback(data)
+    const handler = (_: IpcRendererEvent, data: string) => callback(data)
     ipcRenderer.on(`pty:data:${id}`, handler)
     return () => ipcRenderer.removeListener(`pty:data:${id}`, handler)
   },
 
   onPtyExit: (id, callback) => {
-    const handler = (_: any, code: number) => callback(code)
+    const handler = (_: IpcRendererEvent, code: number) => callback(code)
     ipcRenderer.on(`pty:exit:${id}`, handler)
     return () => ipcRenderer.removeListener(`pty:exit:${id}`, handler)
   },
 
   onPtyRecreated: (callback) => {
-    const handler = (_: any, data: { oldId: string; newId: string; backend: string }) => callback(data)
+    const handler = (_: IpcRendererEvent, data: { oldId: string; newId: string; backend: string }) => callback(data)
     ipcRenderer.on('pty:recreated', handler)
     return () => ipcRenderer.removeListener('pty:recreated', handler)
   },
@@ -420,7 +542,7 @@ const api: ElectronAPI = {
   apiStop: (projectPath) => ipcRenderer.invoke('api:stop', projectPath),
   apiStatus: (projectPath) => ipcRenderer.invoke('api:status', projectPath),
   onApiOpenSession: (callback) => {
-    const handler = (_: any, data: { projectPath: string; autoClose: boolean; model?: string }) => callback(data)
+    const handler = (_: IpcRendererEvent, data: { projectPath: string; autoClose: boolean; model?: string }) => callback(data)
     ipcRenderer.on('api:open-session', handler)
     return () => ipcRenderer.removeListener('api:open-session', handler)
   },
@@ -431,7 +553,7 @@ const api: ElectronAPI = {
   downloadUpdate: () => ipcRenderer.invoke('updater:download'),
   installUpdate: () => ipcRenderer.invoke('updater:install'),
   onUpdaterStatus: (callback) => {
-    const handler = (_: any, data: { status: string; version?: string; progress?: number; error?: string }) => callback(data)
+    const handler = (_: IpcRendererEvent, data: { status: string; version?: string; progress?: number; error?: string }) => callback(data)
     ipcRenderer.on('updater:status', handler)
     return () => ipcRenderer.removeListener('updater:status', handler)
   },

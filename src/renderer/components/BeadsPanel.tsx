@@ -1,5 +1,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
 import ReactDOM from 'react-dom'
+import { BEADS_POLL_INTERVAL_MS } from '../../constants'
+import { tasksCache, beadsStatusCache } from '../utils/lruCache'
 
 interface BeadsTask {
   id: string
@@ -32,8 +34,26 @@ const MAX_HEIGHT = 500
 
 const PRIORITY_LABELS = ['Critical', 'High', 'Medium', 'Low', 'Lowest']
 
-const tasksCache = new Map<string, BeadsTask[]>()
-const beadsStatusCache = new Map<string, { installed: boolean; initialized: boolean }>()
+// Task status ordering for sorting - use Record for type-safe lookups
+type TaskStatus = 'open' | 'in_progress' | 'closed'
+const STATUS_ORDER: Record<TaskStatus, number> = { open: 0, in_progress: 1, closed: 2 }
+
+function getStatusOrder(status: string): number {
+  return status in STATUS_ORDER ? STATUS_ORDER[status as TaskStatus] : 0
+}
+
+// Type guard for checking if event target is a valid Node for contains() check
+function isEventTargetNode(target: EventTarget | null): target is Node {
+  return target !== null && target instanceof Node
+}
+
+// Discriminated union for beads panel state
+type BeadsState =
+  | { status: 'loading' }
+  | { status: 'not_installed'; installing: 'beads' | 'python' | null; needsPython: boolean; installError: string | null; installStatus: string | null }
+  | { status: 'not_initialized'; initializing: boolean }
+  | { status: 'ready' }
+  | { status: 'error'; error: string }
 
 function getPriorityClass(priority?: number): string {
   if (priority === 0) return 'priority-critical'
@@ -52,23 +72,47 @@ function formatStatusLabel(status: string): string {
   return 'Open'
 }
 
+function renderTaskStatusButton(
+  status: string,
+  taskId: string,
+  onComplete: (id: string) => void,
+  onStart: (e: React.MouseEvent, id: string) => void
+): React.ReactNode {
+  switch (status) {
+    case 'closed':
+      return <span className="beads-task-done">✓</span>
+    case 'in_progress':
+      return (
+        <button
+          className="beads-task-check"
+          onClick={() => onComplete(taskId)}
+          title="Mark complete"
+        >
+          ○
+        </button>
+      )
+    default:
+      return (
+        <button
+          className="beads-task-start"
+          onClick={(e) => onStart(e, taskId)}
+          title="Start task"
+        >
+          ▶
+        </button>
+      )
+  }
+}
+
 export function BeadsPanel({ projectPath, isExpanded, onToggle, onStartTaskInNewTab, onSendToCurrentTab, currentTabPtyId }: BeadsPanelProps) {
-  const [beadsInstalled, setBeadsInstalled] = useState(false)
-  const [beadsInitialized, setBeadsInitialized] = useState(false)
+  const [beadsState, setBeadsState] = useState<BeadsState>({ status: 'loading' })
   const [tasks, setTasks] = useState<BeadsTask[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [newTaskTitle, setNewTaskTitle] = useState('')
   const [newTaskType, setNewTaskType] = useState<'task' | 'bug' | 'feature' | 'epic' | 'chore'>('task')
   const [newTaskPriority, setNewTaskPriority] = useState<number>(2)
   const [newTaskDescription, setNewTaskDescription] = useState('')
   const [newTaskLabels, setNewTaskLabels] = useState('')
-  const [initializing, setInitializing] = useState(false)
-  const [installing, setInstalling] = useState<'beads' | 'python' | null>(null)
-  const [installError, setInstallError] = useState<string | null>(null)
-  const [needsPython, setNeedsPython] = useState(false)
-  const [installStatus, setInstallStatus] = useState<string | null>(null)
   const [panelHeight, setPanelHeight] = useState(() => {
     const saved = localStorage.getItem(BEADS_HEIGHT_KEY)
     return saved ? parseInt(saved, 10) : DEFAULT_HEIGHT
@@ -98,7 +142,7 @@ export function BeadsPanel({ projectPath, isExpanded, onToggle, onStartTaskInNew
   const startDropdownRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
-      if (startDropdownRef.current && !startDropdownRef.current.contains(e.target as Node)) {
+      if (startDropdownRef.current && isEventTargetNode(e.target) && !startDropdownRef.current.contains(e.target)) {
         setStartDropdownTaskId(null)
       }
     }
@@ -108,12 +152,12 @@ export function BeadsPanel({ projectPath, isExpanded, onToggle, onStartTaskInNew
     }
   }, [startDropdownTaskId])
 
-  const handleStartButtonClick = (e: React.MouseEvent, taskId: string) => {
+  const handleStartButtonClick = (e: React.MouseEvent<HTMLButtonElement>, taskId: string) => {
     if (startDropdownTaskId === taskId) {
       setStartDropdownTaskId(null)
       setDropdownPosition(null)
     } else {
-      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+      const rect = e.currentTarget.getBoundingClientRect()
       setDropdownPosition({ top: rect.bottom + 4, left: rect.left })
       setStartDropdownTaskId(taskId)
     }
@@ -140,8 +184,7 @@ export function BeadsPanel({ projectPath, isExpanded, onToggle, onStartTaskInNew
     // Capture the project path at the start of this async operation
     const loadingForProject = projectPath
 
-    if (showLoading) setLoading(true)
-    setError(null)
+    if (showLoading) setBeadsState({ status: 'loading' })
 
     try {
       const status = await window.electronAPI.beadsCheck(loadingForProject)
@@ -151,102 +194,91 @@ export function BeadsPanel({ projectPath, isExpanded, onToggle, onStartTaskInNew
         return
       }
 
-      setBeadsInstalled(status.installed)
-      setBeadsInitialized(status.initialized)
       beadsStatusCache.set(loadingForProject, status)
 
-      if (status.installed && status.initialized) {
-        const result = await window.electronAPI.beadsList(loadingForProject)
+      if (!status.installed) {
+        setBeadsState({ status: 'not_installed', installing: null, needsPython: false, installError: null, installStatus: null })
+        return
+      }
 
-        // Check again after the second async call
-        if (currentProjectRef.current !== loadingForProject) {
-          return
-        }
+      if (!status.initialized) {
+        setBeadsState({ status: 'not_initialized', initializing: false })
+        return
+      }
 
-        if (result.success && result.tasks) {
-          setTasks(result.tasks)
-          tasksCache.set(loadingForProject, result.tasks)
-        } else {
-          setError(result.error || 'Failed to load tasks')
-        }
+      const result = await window.electronAPI.beadsList(loadingForProject)
+
+      // Check again after the second async call
+      if (currentProjectRef.current !== loadingForProject) {
+        return
+      }
+
+      if (result.success && result.tasks) {
+        setTasks(result.tasks)
+        tasksCache.set(loadingForProject, result.tasks)
+        setBeadsState({ status: 'ready' })
+      } else {
+        setBeadsState({ status: 'error', error: result.error || 'Failed to load tasks' })
       }
     } catch (e) {
       // Only set error if still on the same project
       if (currentProjectRef.current === loadingForProject) {
-        setError(String(e))
-      }
-    } finally {
-      // Only clear loading if still on the same project
-      if (currentProjectRef.current === loadingForProject) {
-        setLoading(false)
+        setBeadsState({ status: 'error', error: String(e) })
       }
     }
   }, [projectPath])
 
   const handleInitBeads = async () => {
     if (!projectPath) return
+    if (beadsState.status !== 'not_initialized') return
 
-    setInitializing(true)
-    setError(null)
+    setBeadsState({ status: 'not_initialized', initializing: true })
 
     try {
       const result = await window.electronAPI.beadsInit(projectPath)
       if (result.success) {
         loadTasks()
       } else {
-        setError(result.error || 'Failed to initialize beads')
+        setBeadsState({ status: 'error', error: result.error || 'Failed to initialize beads' })
       }
     } catch (e) {
-      setError(String(e))
-    } finally {
-      setInitializing(false)
+      setBeadsState({ status: 'error', error: String(e) })
     }
   }
 
   const handleInstallPython = async () => {
-    setInstalling('python')
-    setInstallError(null)
-    setInstallStatus('Downloading Python...')
+    if (beadsState.status !== 'not_installed') return
+
+    setBeadsState({ status: 'not_installed', installing: 'python', needsPython: true, installError: null, installStatus: 'Downloading Python...' })
 
     try {
       const result = await window.electronAPI.pythonInstall()
       if (result.success) {
-        setNeedsPython(false)
-        setInstallStatus(null)
+        setBeadsState({ status: 'not_installed', installing: null, needsPython: false, installError: null, installStatus: null })
         // Now try installing beads again
         handleInstallBeads()
       } else {
-        setInstallError(result.error || 'Python installation failed')
-        setInstallStatus(null)
+        setBeadsState({ status: 'not_installed', installing: null, needsPython: true, installError: result.error || 'Python installation failed', installStatus: null })
       }
     } catch (e) {
-      setInstallError(String(e))
-      setInstallStatus(null)
-    } finally {
-      setInstalling(null)
+      setBeadsState({ status: 'not_installed', installing: null, needsPython: true, installError: String(e), installStatus: null })
     }
   }
 
   const handleInstallBeads = async () => {
-    setInstalling('beads')
-    setInstallError(null)
-    setNeedsPython(false)
+    setBeadsState({ status: 'not_installed', installing: 'beads', needsPython: false, installError: null, installStatus: null })
 
     try {
       const result = await window.electronAPI.beadsInstall()
       if (result.success) {
-        setBeadsInstalled(true)
         loadTasks()
       } else if (result.needsPython) {
-        setNeedsPython(true)
-        setInstallError(result.error || 'Python is required')
+        setBeadsState({ status: 'not_installed', installing: null, needsPython: true, installError: result.error || 'Python is required', installStatus: null })
       } else {
-        setInstallError(result.error || 'Installation failed')
+        setBeadsState({ status: 'not_installed', installing: null, needsPython: false, installError: result.error || 'Installation failed', installStatus: null })
       }
     } catch (e) {
-      setInstallError(String(e))
-    } finally {
-      setInstalling(null)
+      setBeadsState({ status: 'not_installed', installing: null, needsPython: false, installError: String(e), installStatus: null })
     }
   }
 
@@ -254,7 +286,10 @@ export function BeadsPanel({ projectPath, isExpanded, onToggle, onStartTaskInNew
     const cleanup = window.electronAPI.onInstallProgress((data) => {
       if (data.type === 'python') {
         const percent = data.percent !== undefined ? ` (${data.percent}%)` : ''
-        setInstallStatus(`${data.status}${percent}`)
+        setBeadsState((prev) => {
+          if (prev.status !== 'not_installed') return prev
+          return { ...prev, installStatus: `${data.status}${percent}` }
+        })
       }
     })
     return cleanup
@@ -263,38 +298,59 @@ export function BeadsPanel({ projectPath, isExpanded, onToggle, onStartTaskInNew
   useEffect(() => {
     currentProjectRef.current = projectPath
 
-    setError(null)
     if (projectPath) {
       // Always clear first to avoid showing stale data from wrong project
       setTasks([])
-      setBeadsInitialized(false)
-      setBeadsInstalled(false)
+      setBeadsState({ status: 'loading' })
 
       // Then load from cache for instant display (if available for THIS project)
       const cachedTasks = tasksCache.get(projectPath)
       const cachedStatus = beadsStatusCache.get(projectPath)
       if (cachedTasks && cachedStatus) {
         setTasks(cachedTasks)
-        setBeadsInstalled(cachedStatus.installed)
-        setBeadsInitialized(cachedStatus.initialized)
+        if (cachedStatus.installed && cachedStatus.initialized) {
+          setBeadsState({ status: 'ready' })
+        } else if (cachedStatus.installed) {
+          setBeadsState({ status: 'not_initialized', initializing: false })
+        } else {
+          setBeadsState({ status: 'not_installed', installing: null, needsPython: false, installError: null, installStatus: null })
+        }
       }
 
       // Always fetch fresh data immediately on project change
       loadTasks(false)
     } else {
       setTasks([])
-      setBeadsInitialized(false)
-      setBeadsInstalled(false)
+      setBeadsState({ status: 'loading' })
     }
   }, [projectPath]) // eslint-disable-line react-hooks/exhaustive-deps
 
+  // Watch .beads directory for changes instead of polling
   useEffect(() => {
-    if (projectPath) {
-      // Auto-refresh every 10 seconds (silent, no loading state)
-      const interval = setInterval(() => loadTasks(false), 10000)
-      return () => clearInterval(interval)
+    const isReady = beadsState.status === 'ready'
+    if (!projectPath || !isReady) return
+
+    // Start watching the .beads directory
+    window.electronAPI.beadsWatch(projectPath)
+
+    // Listen for task changes from the file watcher
+    const cleanup = window.electronAPI.onBeadsTasksChanged((data) => {
+      if (data.cwd === projectPath) {
+        loadTasks(false)
+      }
+    })
+
+    return () => {
+      // Stop watching when component unmounts or project changes
+      window.electronAPI.beadsUnwatch(projectPath)
+      cleanup()
     }
-  }, [projectPath, loadTasks])
+  }, [projectPath, beadsState.status, loadTasks])
+
+  // Helper to set error state
+  const setError = useCallback((error: string) => {
+    setBeadsState({ status: 'error', error })
+  }, [])
 
   const handleCreateTask = async () => {
     if (!projectPath || !newTaskTitle.trim()) return
@@ -332,14 +388,24 @@ export function BeadsPanel({ projectPath, isExpanded, onToggle, onStartTaskInNew
   const handleCompleteTask = async (taskId: string) => {
     if (!projectPath) return
 
+    // Optimistic update: immediately update local state
+    const previousTasks = [...tasks]
+    const updatedTasks = tasks.map(t => t.id === taskId ? { ...t, status: 'closed' } : t)
+    setTasks(updatedTasks)
+    tasksCache.set(projectPath, updatedTasks)
+
     try {
       const result = await window.electronAPI.beadsComplete(projectPath, taskId)
-      if (result.success) {
-        loadTasks()
-      } else {
+      if (!result.success) {
+        // Revert on error
+        setTasks(previousTasks)
+        tasksCache.set(projectPath, previousTasks)
         setError(result.error || 'Failed to complete task')
       }
     } catch (e) {
+      // Revert on error
+      setTasks(previousTasks)
+      tasksCache.set(projectPath, previousTasks)
       setError(String(e))
     }
   }
@@ -347,14 +413,24 @@ export function BeadsPanel({ projectPath, isExpanded, onToggle, onStartTaskInNew
   const handleDeleteTask = async (taskId: string) => {
     if (!projectPath) return
 
+    // Optimistic update: immediately remove from local state
+    const previousTasks = [...tasks]
+    const updatedTasks = tasks.filter(t => t.id !== taskId)
+    setTasks(updatedTasks)
+    tasksCache.set(projectPath, updatedTasks)
+
     try {
       const result = await window.electronAPI.beadsDelete(projectPath, taskId)
-      if (result.success) {
-        loadTasks()
-      } else {
+      if (!result.success) {
+        // Revert on error
+        setTasks(previousTasks)
+        tasksCache.set(projectPath, previousTasks)
         setError(result.error || 'Failed to delete task')
       }
     } catch (e) {
+      // Revert on error
+      setTasks(previousTasks)
+      tasksCache.set(projectPath, previousTasks)
       setError(String(e))
     }
   }
@@ -362,14 +438,24 @@ export function BeadsPanel({ projectPath, isExpanded, onToggle, onStartTaskInNew
   const handleStartTask = async (taskId: string) => {
     if (!projectPath) return
 
+    // Optimistic update: immediately update local state
+    const previousTasks = [...tasks]
+    const updatedTasks = tasks.map(t => t.id === taskId ? { ...t, status: 'in_progress' } : t)
+    setTasks(updatedTasks)
+    tasksCache.set(projectPath, updatedTasks)
+
     try {
       const result = await window.electronAPI.beadsStart(projectPath, taskId)
-      if (result.success) {
-        loadTasks()
-      } else {
+      if (!result.success) {
+        // Revert on error
+        setTasks(previousTasks)
+        tasksCache.set(projectPath, previousTasks)
         setError(result.error || 'Failed to start task')
       }
     } catch (e) {
+      // Revert on error
+      setTasks(previousTasks)
+      tasksCache.set(projectPath, previousTasks)
       setError(String(e))
     }
   }
@@ -381,14 +467,24 @@ export function BeadsPanel({ projectPath, isExpanded, onToggle, onStartTaskInNew
       : currentStatus === 'in_progress' ? 'closed'
       : 'open'
 
+    // Optimistic update: immediately update local state
+    const previousTasks = [...tasks]
+    const updatedTasks = tasks.map(t => t.id === taskId ? { ...t, status: nextStatus } : t)
+    setTasks(updatedTasks)
+    tasksCache.set(projectPath, updatedTasks)
+
     try {
       const result = await window.electronAPI.beadsUpdate(projectPath, taskId, nextStatus)
-      if (result.success) {
-        loadTasks()
-      } else {
+      if (!result.success) {
+        // Revert on error
+        setTasks(previousTasks)
+        tasksCache.set(projectPath, previousTasks)
         setError(result.error || 'Failed to update task status')
       }
     } catch (e) {
+      // Revert on error
+      setTasks(previousTasks)
+      tasksCache.set(projectPath, previousTasks)
       setError(String(e))
     }
   }
@@ -520,12 +616,18 @@ export function BeadsPanel({ projectPath, isExpanded, onToggle, onStartTaskInNew
   useEffect(() => {
     if (!isResizing) return
 
+    let rafId: number | null = null
     const handleMouseMove = (e: MouseEvent) => {
       if (!resizeRef.current) return
-      // Dragging up = larger panel (negative delta)
-      const delta = resizeRef.current.startY - e.clientY
-      const newHeight = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, resizeRef.current.startHeight + delta))
-      setPanelHeight(newHeight)
+      if (rafId !== null) return // Skip if a frame is already pending
+      rafId = requestAnimationFrame(() => {
+        rafId = null
+        if (!resizeRef.current) return
+        // Dragging up = larger panel (negative delta)
+        const delta = resizeRef.current.startY - e.clientY
+        const newHeight = Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, resizeRef.current.startHeight + delta))
+        setPanelHeight(newHeight)
+      })
     }
 
     const handleMouseUp = () => {
@@ -536,6 +638,7 @@ export function BeadsPanel({ projectPath, isExpanded, onToggle, onStartTaskInNew
     document.addEventListener('mousemove', handleMouseMove)
     document.addEventListener('mouseup', handleMouseUp)
     return () => {
+      if (rafId !== null) cancelAnimationFrame(rafId)
       document.removeEventListener('mousemove', handleMouseMove)
       document.removeEventListener('mouseup', handleMouseUp)
     }
@@ -556,9 +659,7 @@ export function BeadsPanel({ projectPath, isExpanded, onToggle, onStartTaskInNew
         return (a.priority ?? 2) - (b.priority ?? 2)
       }
       if (browserSort === 'status') {
-        const statusOrder = { open: 0, in_progress: 1, closed: 2 }
-        return (statusOrder[a.status as keyof typeof statusOrder] ?? 0) -
-               (statusOrder[b.status as keyof typeof statusOrder] ?? 0)
+        return getStatusOrder(a.status) - getStatusOrder(b.status)
       }
       if (browserSort === 'created') {
         const aDate = a.created_at ? new Date(a.created_at).getTime() : 0
@@ -573,24 +674,46 @@ export function BeadsPanel({ projectPath, isExpanded, onToggle, onStartTaskInNew
 
   const handleOpenBrowser = (e: React.MouseEvent) => {
     e.stopPropagation()
-    if (projectPath && beadsInitialized) {
+    const isReady = beadsState.status === 'ready'
+    if (projectPath && isReady) {
       setShowBrowser(true)
     }
   }
 
   const projectName = projectPath ? projectPath.split(/[/\\]/).pop() : null
 
+  // Derive UI state from discriminated union
+  const isLoading = beadsState.status === 'loading'
+  const isReady = beadsState.status === 'ready'
+  const isNotInstalled = beadsState.status === 'not_installed'
+  const isNotInitialized = beadsState.status === 'not_initialized'
+  const errorMessage = beadsState.status === 'error' ? beadsState.error : null
+
   return (
     <div className="beads-panel">
       <div className="beads-header">
-        <span className="beads-toggle" onClick={onToggle} title={isExpanded ? 'Collapse list' : 'Expand list'}>
+        <button
+          className="beads-toggle"
+          onClick={onToggle}
+          title={isExpanded ? 'Collapse list' : 'Expand list'}
+          aria-expanded={isExpanded}
+          aria-label="Toggle beads panel"
+        >
           {isExpanded ? '▼' : '▶'}
-        </span>
+        </button>
         <span className="beads-icon">📿</span>
         <span
-          className={`beads-title ${projectPath && beadsInitialized ? 'clickable' : ''}`}
+          className={`beads-title ${projectPath && isReady ? 'clickable' : ''}`}
+          role={projectPath && isReady ? 'button' : undefined}
+          tabIndex={projectPath && isReady ? 0 : undefined}
           onClick={handleOpenBrowser}
-          title={projectPath && beadsInitialized ? 'Open task browser' : ''}
+          onKeyDown={(e) => {
+            if ((e.key === 'Enter' || e.key === ' ') && projectPath && isReady) {
+              e.preventDefault()
+              handleOpenBrowser(e as unknown as React.MouseEvent)
+            }
+          }}
+          title={projectPath && isReady ? 'Open task browser' : ''}
         >
           Beads{projectName ? `: ${projectName}` : ''}
         </span>
@@ -608,54 +731,54 @@ export function BeadsPanel({ projectPath, isExpanded, onToggle, onStartTaskInNew
             <div className="beads-empty">Select a project to view tasks</div>
           )}
 
-          {projectPath && !beadsInstalled && !loading && (
+          {projectPath && isNotInstalled && (
             <div className="beads-empty">
               <p>Beads CLI (<code>bd</code>) not found.</p>
-              {installError && <p className="beads-install-error">{installError}</p>}
-              {installStatus && <p className="beads-install-status">{installStatus}</p>}
+              {beadsState.installError && <p className="beads-install-error" role="alert" aria-live="assertive">{beadsState.installError}</p>}
+              {beadsState.installStatus && <p className="beads-install-status" role="status" aria-live="polite">{beadsState.installStatus}</p>}
               <div className="beads-install-buttons">
-                {needsPython && (
+                {beadsState.needsPython && (
                   <button
                     className="beads-init-btn"
                     onClick={handleInstallPython}
-                    disabled={installing !== null}
+                    disabled={beadsState.installing !== null}
                   >
-                    {installing === 'python' ? 'Installing Python...' : '1. Install Python'}
+                    {beadsState.installing === 'python' ? 'Installing Python...' : '1. Install Python'}
                   </button>
                 )}
                 <button
                   className="beads-init-btn"
                   onClick={handleInstallBeads}
-                  disabled={installing !== null || needsPython}
+                  disabled={beadsState.installing !== null || beadsState.needsPython}
                 >
-                  {installing === 'beads' ? 'Installing...' : needsPython ? '2. Install Beads' : 'Install Beads CLI'}
+                  {beadsState.installing === 'beads' ? 'Installing...' : beadsState.needsPython ? '2. Install Beads' : 'Install Beads CLI'}
                 </button>
               </div>
             </div>
           )}
 
-          {projectPath && beadsInstalled && !beadsInitialized && !loading && (
+          {projectPath && isNotInitialized && (
             <div className="beads-empty">
               <p>No Beads initialized.</p>
               <button
                 className="beads-init-btn"
                 onClick={handleInitBeads}
-                disabled={initializing}
+                disabled={beadsState.initializing}
               >
-                {initializing ? 'Initializing...' : 'Initialize Beads'}
+                {beadsState.initializing ? 'Initializing...' : 'Initialize Beads'}
               </button>
             </div>
           )}
 
-          {projectPath && loading && (
-            <div className="beads-loading">Loading tasks...</div>
+          {projectPath && isLoading && (
+            <div className="beads-loading" role="status" aria-live="polite">Loading tasks...</div>
           )}
 
-          {projectPath && beadsInitialized && !loading && error && (
-            <div className="beads-error">{error}</div>
+          {projectPath && errorMessage && (
+            <div className="beads-error" role="alert" aria-live="assertive">{errorMessage}</div>
           )}
 
-          {projectPath && beadsInitialized && !loading && !error && (
+          {projectPath && isReady && (
             <>
               <div className="beads-tasks" style={{ maxHeight: `${panelHeight}px` }}>
                 {tasks.length === 0 ? (
@@ -663,25 +786,7 @@ export function BeadsPanel({ projectPath, isExpanded, onToggle, onStartTaskInNew
                 ) : (
                   tasks.map((task) => (
                     <div key={task.id} className={`beads-task ${getPriorityClass(task.priority)} status-${task.status}`}>
-                      {task.status === 'closed' ? (
-                        <span className="beads-task-done">✓</span>
-                      ) : task.status === 'in_progress' ? (
-                        <button
-                          className="beads-task-check"
-                          onClick={() => handleCompleteTask(task.id)}
-                          title="Mark complete"
-                        >
-                          ○
-                        </button>
-                      ) : (
-                        <button
-                          className="beads-task-start"
-                          onClick={(e) => handleStartButtonClick(e, task.id)}
-                          title="Start task"
-                        >
-                          ▶
-                        </button>
-                      )}
+                      {renderTaskStatusButton(task.status, task.id, handleCompleteTask, handleStartButtonClick)}
                       <div className="beads-task-content">
                         {editingTaskId === task.id ? (
                           <input
@@ -855,7 +960,7 @@ export function BeadsPanel({ projectPath, isExpanded, onToggle, onStartTaskInNew
                     </div>
                     <div className="beads-modal-body">
                       {detailLoading ? (
-                        <div className="beads-detail-loading">Loading...</div>
+                        <div className="beads-detail-loading" role="status" aria-live="polite">Loading...</div>
                       ) : detailTask ? (
                         editingDetail ? (
                           <>

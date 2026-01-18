@@ -19,10 +19,23 @@ type PromptHandler = (projectPath: string, prompt: string, sessionMode: SessionM
 
 type SessionModeGetter = (projectPath: string) => SessionMode
 
+// Rate limiting configuration
+const RATE_LIMIT_MAX_REQUESTS = 10
+const RATE_LIMIT_WINDOW_MS = 60000 // 1 minute
+
+// Maximum allowed request body size (100KB) to prevent DoS attacks
+const MAX_BODY_SIZE = 100 * 1024
+
+interface RateLimitEntry {
+  count: number
+  windowStart: number
+}
+
 export class ApiServerManager {
   private servers: Map<string, ApiServer> = new Map() // projectPath -> server
   private promptHandler: PromptHandler | null = null
   private sessionModeGetter: SessionModeGetter | null = null
+  private rateLimitMap: Map<string, RateLimitEntry> = new Map() // IP -> rate limit info
 
   setPromptHandler(handler: PromptHandler) {
     this.promptHandler = handler
@@ -32,7 +45,39 @@ export class ApiServerManager {
     this.sessionModeGetter = getter
   }
 
+  private checkRateLimit(ip: string): boolean {
+    const now = Date.now()
+    const entry = this.rateLimitMap.get(ip)
+
+    if (!entry || now - entry.windowStart >= RATE_LIMIT_WINDOW_MS) {
+      // Start a new window
+      this.rateLimitMap.set(ip, { count: 1, windowStart: now })
+      return true
+    }
+
+    if (entry.count >= RATE_LIMIT_MAX_REQUESTS) {
+      return false // Rate limited
+    }
+
+    entry.count++
+    return true
+  }
+
+  private cleanupRateLimitMap(): void {
+    const now = Date.now()
+    for (const [ip, entry] of this.rateLimitMap) {
+      if (now - entry.windowStart >= RATE_LIMIT_WINDOW_MS) {
+        this.rateLimitMap.delete(ip)
+      }
+    }
+  }
+
   start(projectPath: string, port: number): { success: boolean; error?: string } {
+    // Validate port is a number and within valid range (excluding privileged ports)
+    if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+      return { success: false, error: 'Invalid port: must be an integer between 1024 and 65535' }
+    }
+
     // Stop existing server for this project if any
     this.stop(projectPath)
 
@@ -45,21 +90,46 @@ export class ApiServerManager {
 
     try {
       const server = http.createServer((req, res) => {
-        // CORS headers
-        res.setHeader('Access-Control-Allow-Origin', '*')
-        res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS')
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type')
-
-        if (req.method === 'OPTIONS') {
-          res.writeHead(200)
-          res.end()
-          return
-        }
+        // No CORS headers needed - server binds to localhost only (127.0.0.1)
+        // and is not intended to be accessed from web pages
 
         if (req.method === 'POST' && req.url === '/prompt') {
+          // Rate limiting check
+          const clientIp = req.socket.remoteAddress || 'unknown'
+          if (!this.checkRateLimit(clientIp)) {
+            res.writeHead(429, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({
+              success: false,
+              error: 'Rate limit exceeded. Maximum 10 requests per minute.'
+            }))
+            return
+          }
+
+          // Periodically clean up stale rate limit entries
+          if (Math.random() < 0.1) {
+            this.cleanupRateLimitMap()
+          }
+
           let body = ''
-          req.on('data', chunk => { body += chunk })
+          let bodySizeExceeded = false
+          req.on('data', chunk => {
+            body += chunk
+            // Check body size limit to prevent DoS attacks
+            if (body.length > MAX_BODY_SIZE) {
+              bodySizeExceeded = true
+              res.writeHead(413, { 'Content-Type': 'application/json' })
+              res.end(JSON.stringify({ success: false, error: 'Request body too large' }))
+              req.destroy()
+            }
+          })
+          req.on('error', (e) => {
+            console.error('Request error:', e)
+            res.writeHead(500, { 'Content-Type': 'application/json' })
+            res.end(JSON.stringify({ success: false, error: 'Request error' }))
+          })
           req.on('end', async () => {
+            // Skip processing if body size limit was exceeded
+            if (bodySizeExceeded) return
             try {
               const data = JSON.parse(body)
               const prompt = data.prompt || data.message || data.text || ''

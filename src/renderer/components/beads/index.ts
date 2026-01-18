@@ -1,3 +1,5 @@
 export * from './types.js'
 export { CreateTaskModal } from './CreateTaskModal.js'
 export { TaskDetailModal } from './TaskDetailModal.js'
+export { BrowserModal } from './BrowserModal.js'
+export { StartDropdown } from './StartDropdown.js'

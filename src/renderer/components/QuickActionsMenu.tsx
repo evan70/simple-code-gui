@@ -1,6 +1,11 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react'
 import ReactDOM from 'react-dom'
 
+// Type guard for checking if event target is a valid Node for contains() check
+function isEventTargetNode(target: EventTarget | null): target is Node {
+  return target !== null && target instanceof Node
+}
+
 interface Command {
   command: string
   extensionId: string
@@ -42,9 +47,10 @@ export function QuickActionsMenu({ projectPath, ptyId, onOpenExtensions }: Quick
     if (!isOpen) return
 
     const handleClick = (e: MouseEvent) => {
+      if (!isEventTargetNode(e.target)) return
       if (
-        menuRef.current && !menuRef.current.contains(e.target as Node) &&
-        buttonRef.current && !buttonRef.current.contains(e.target as Node)
+        menuRef.current && !menuRef.current.contains(e.target) &&
+        buttonRef.current && !buttonRef.current.contains(e.target)
       ) {
         setIsOpen(false)
       }
@@ -91,11 +97,12 @@ export function QuickActionsMenu({ projectPath, ptyId, onOpenExtensions }: Quick
         className="quick-actions-btn"
         onClick={() => setIsOpen(!isOpen)}
         title="Quick Actions"
+        aria-label="Quick Actions"
         disabled={!projectPath}
       >
-        <span className="icon">⚡</span>
+        <span className="icon" aria-hidden="true">⚡</span>
         <span className="label">Actions</span>
-        <span className="caret">▾</span>
+        <span className="caret" aria-hidden="true">▾</span>
       </button>
 
       {isOpen && ReactDOM.createPortal(

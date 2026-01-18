@@ -1,6 +1,7 @@
 import React from 'react'
 import ReactDOM from 'react-dom'
 import { Project } from '../../stores/workspace.js'
+import { useFocusTrap } from '../../hooks/useFocusTrap'
 
 interface DeleteConfirmModalProps {
   project: Project
@@ -9,9 +10,11 @@ interface DeleteConfirmModalProps {
 }
 
 export function DeleteConfirmModal({ project, onClose, onConfirm }: DeleteConfirmModalProps) {
+  const focusTrapRef = useFocusTrap<HTMLDivElement>(true)
+
   return ReactDOM.createPortal(
     <div className="modal-overlay" onClick={onClose}>
-      <div className="modal delete-confirm-modal" onClick={(e) => e.stopPropagation()}>
+      <div className="modal delete-confirm-modal" ref={focusTrapRef} onClick={(e) => e.stopPropagation()}>
         <div className="modal-header">
           <h2>Remove Project?</h2>
           <button className="modal-close" onClick={onClose}>×</button>

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react'
+import { gsdStatusCache } from '../utils/lruCache'
 
 interface GSDProgress {
   initialized: boolean
@@ -17,8 +18,6 @@ interface GSDStatusProps {
   projectPath: string | null
   onCommand: (command: string) => void
 }
-
-const gsdStatusCache = new Map<string, GSDProgress>()
 
 export function GSDStatus({ projectPath, onCommand }: GSDStatusProps) {
   const [gsdInstalled, setGsdInstalled] = useState(false)
@@ -96,12 +95,12 @@ export function GSDStatus({ projectPath, onCommand }: GSDStatusProps) {
       // Fetch fresh data
       loadStatus(false)
     }
-  }, [projectPath]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [projectPath, loadStatus])
 
-  // Auto-refresh every 10 seconds
+  // Auto-refresh every 60 seconds
   useEffect(() => {
     if (projectPath) {
-      const interval = setInterval(() => loadStatus(false), 10000)
+      const interval = setInterval(() => loadStatus(false), 60000)
       return () => clearInterval(interval)
     }
   }, [projectPath, loadStatus])
@@ -149,8 +148,21 @@ export function GSDStatus({ projectPath, onCommand }: GSDStatusProps) {
 
   return (
     <div className="gsd-status">
-      <div className="gsd-status-header" onClick={() => setIsExpanded(!isExpanded)}>
-        <span className="gsd-toggle">{isExpanded ? '▼' : '▶'}</span>
+      <div
+        className="gsd-status-header"
+        role="button"
+        tabIndex={0}
+        onClick={() => setIsExpanded(!isExpanded)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault()
+            setIsExpanded(!isExpanded)
+          }
+        }}
+        aria-expanded={isExpanded}
+        aria-label="Toggle GSD status panel"
+      >
+        <span className="gsd-toggle" aria-hidden="true">{isExpanded ? '▼' : '▶'}</span>
         <span className="gsd-icon">🚀</span>
         <span className="gsd-title">GSD{projectName ? `: ${projectName}` : ''}</span>
         {progress?.initialized && progress.totalPhases > 0 && (
@@ -165,13 +177,13 @@ export function GSDStatus({ projectPath, onCommand }: GSDStatusProps) {
           )}
 
           {projectPath && loading && !progress && (
-            <div className="gsd-loading">Loading...</div>
+            <div className="gsd-loading" role="status" aria-live="polite">Loading...</div>
           )}
 
           {projectPath && !loading && !gsdInstalled && (
             <div className="gsd-empty">
               <p>GSD not installed</p>
-              {installError && <p className="gsd-install-error">{installError}</p>}
+              {installError && <p className="gsd-install-error" role="alert" aria-live="assertive">{installError}</p>}
               <div className="gsd-install-buttons">
                 <button
                   className="gsd-action-btn"
@@ -206,8 +218,8 @@ export function GSDStatus({ projectPath, onCommand }: GSDStatusProps) {
           {projectPath && gsdInstalled && progress?.initialized && (
             <>
               {progress.totalPhases > 0 && (
-                <div className="gsd-progress-section">
-                  <div className="gsd-progress-bar">
+                <div className="gsd-progress-section" role="status" aria-live="polite" aria-atomic="true">
+                  <div className="gsd-progress-bar" role="progressbar" aria-valuenow={getProgressPercent()} aria-valuemin={0} aria-valuemax={100}>
                     <div
                       className="gsd-progress-fill"
                       style={{ width: `${getProgressPercent()}%` }}

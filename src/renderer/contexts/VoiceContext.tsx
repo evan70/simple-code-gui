@@ -1,5 +1,34 @@
-import React, { createContext, useContext, useState, useCallback, useRef, useEffect } from 'react'
-import { WhisperTranscriber } from 'whisper-web-transcriber'
+import React, { createContext, useContext, useState, useCallback, useRef, useEffect, useMemo } from 'react'
+
+// Dynamic import for whisper-web-transcriber - only loaded when voice input is actually used
+// This saves ~4.5MB bundle size when voice features are disabled
+let WhisperTranscriberClass: (new (config: WhisperTranscriberConfig) => WhisperInstance) | null = null
+
+const loadWhisperTranscriber = async (): Promise<new (config: WhisperTranscriberConfig) => WhisperInstance> => {
+  if (!WhisperTranscriberClass) {
+    const module = await import('whisper-web-transcriber')
+    WhisperTranscriberClass = module.WhisperTranscriber as new (config: WhisperTranscriberConfig) => WhisperInstance
+  }
+  return WhisperTranscriberClass
+}
+
+// WhisperTranscriber instance interface for type safety
+interface WhisperInstance {
+  loadModel(): Promise<void>
+  startRecording(): Promise<void>
+  stopRecording(): void
+  destroy(): void
+}
+
+// WhisperTranscriber config - modelSize accepts string (library has loose typing)
+interface WhisperTranscriberConfig {
+  modelUrl: string
+  modelSize: string  // Library accepts any string, we pass our WhisperModelSize
+  onTranscription: (text: string) => void
+  onProgress?: (progress: number) => void
+  onStatus?: (status: string) => void
+  maxRecordingTime?: number
+}
 
 // Map to HuggingFace URLs for all Whisper model sizes
 type WhisperModelSize = 'tiny.en' | 'base.en' | 'small.en' | 'medium.en' | 'large-v3'
@@ -64,6 +93,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   const [skipOnNew, setSkipOnNewState] = useState(false)
   const [settingsLoaded, setSettingsLoaded] = useState(false)
   const audioRef = useRef<HTMLAudioElement | null>(null)
+  const audioUrlRef = useRef<string | null>(null)  // Track blob URL for cleanup on unmount
   const speakQueueRef = useRef<string[]>([])
   const isProcessingRef = useRef(false)
   const voiceOutputEnabledRef = useRef(voiceOutputEnabled)
@@ -81,7 +111,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   const [modelLoadStatus, setModelLoadStatus] = useState('')
   const [whisperModel, setWhisperModelState] = useState<WhisperModelSize>('base.en')
   const [currentTranscription, setCurrentTranscription] = useState('')
-  const whisperRef = useRef<WhisperTranscriber | null>(null)
+  const whisperRef = useRef<WhisperInstance | null>(null)
   const onTranscriptionRef = useRef<((text: string) => void) | null>(null)
   const finalTranscriptionRef = useRef<string>('')
   const silenceTimerRef = useRef<NodeJS.Timeout | null>(null)
@@ -107,7 +137,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
           engine: voiceSettings.ttsEngine || 'piper'
         }
       }
-    })
+    }).catch(e => console.error('Failed to load global voice settings:', e))
   }, [])
 
   // Keep refs in sync to avoid stale closures
@@ -130,6 +160,29 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     await window.electronAPI.saveSettings({ ...settings, [key]: value })
   }, [settingsLoaded])
 
+  // Debounced save for slider-based settings (volume, speed) to avoid excessive IPC calls
+  const debouncedSaveRef = useRef<{ timer: NodeJS.Timeout | null; pending: Map<string, boolean | number> }>({
+    timer: null,
+    pending: new Map()
+  })
+
+  const debouncedSaveVoiceSetting = useMemo(() => {
+    return (key: string, value: boolean | number) => {
+      debouncedSaveRef.current.pending.set(key, value)
+      if (debouncedSaveRef.current.timer) {
+        clearTimeout(debouncedSaveRef.current.timer)
+      }
+      debouncedSaveRef.current.timer = setTimeout(() => {
+        // Save all pending settings
+        debouncedSaveRef.current.pending.forEach((val, k) => {
+          saveVoiceSetting(k, val)
+        })
+        debouncedSaveRef.current.pending.clear()
+        debouncedSaveRef.current.timer = null
+      }, 500)
+    }
+  }, [saveVoiceSetting])
+
   // Wrapper for setVoiceOutputEnabled that saves setting
   const setVoiceOutputEnabled = useCallback((enabled: boolean) => {
     setVoiceOutputEnabledState(enabled)
@@ -143,16 +196,16 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     if (audioRef.current) {
       audioRef.current.volume = clamped
     }
-    saveVoiceSetting('voiceVolume', clamped)
-  }, [saveVoiceSetting])
+    debouncedSaveVoiceSetting('voiceVolume', clamped)
+  }, [debouncedSaveVoiceSetting])
 
   // Update speed and notify backend
   const setSpeed = useCallback((s: number) => {
     const clamped = Math.max(0.5, Math.min(2.0, s))
     setSpeedState(clamped)
     window.electronAPI.voiceApplySettings?.({ ttsSpeed: clamped })
-    saveVoiceSetting('voiceSpeed', clamped)
-  }, [saveVoiceSetting])
+    debouncedSaveVoiceSetting('voiceSpeed', clamped)
+  }, [debouncedSaveVoiceSetting])
 
   // Update skipOnNew and save
   const setSkipOnNew = useCallback((skip: boolean) => {
@@ -202,22 +255,26 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
             const audio = new Audio(url)
             audio.volume = volumeRef.current
             audioRef.current = audio
+            audioUrlRef.current = url  // Track URL for cleanup on unmount
 
             audio.onended = () => {
               URL.revokeObjectURL(url)
               audioRef.current = null
+              audioUrlRef.current = null
               resolve()
             }
             audio.onerror = (e) => {
               console.error('Audio playback error:', e)
               URL.revokeObjectURL(url)
               audioRef.current = null
+              audioUrlRef.current = null
               resolve()
             }
 
             audio.play().catch(e => {
               console.error('Failed to play audio:', e)
               URL.revokeObjectURL(url)
+              audioUrlRef.current = null
               resolve()
             })
           })
@@ -279,20 +336,25 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
 
   // ==================== Voice Input (STT) ====================
 
-  // Initialize Whisper transcriber
+  // Initialize Whisper transcriber - dynamically loads the module only when needed
   const initWhisper = useCallback(async () => {
     if (whisperRef.current || isModelLoading) return
 
     setIsModelLoading(true)
-    setModelLoadStatus('Initializing...')
+    setModelLoadStatus('Loading Whisper module...')
 
     try {
+      // Dynamically load the whisper-web-transcriber module
+      const WhisperTranscriber = await loadWhisperTranscriber()
+
+      setModelLoadStatus('Initializing...')
+
       const modelUrl = WHISPER_MODEL_URLS[whisperModel]
       const modelSizeMB = WHISPER_MODEL_SIZES[whisperModel]
 
       const transcriber = new WhisperTranscriber({
         modelUrl,
-        modelSize: whisperModel as any,  // Use our model names
+        modelSize: whisperModel,
         onTranscription: (text: string) => {
           // ACCUMULATE transcriptions (library sends separate chunks)
           // Filter out Whisper's silence/noise markers and artifacts
@@ -366,9 +428,9 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       whisperRef.current = transcriber
       setIsModelLoaded(true)
       setModelLoadStatus('Model loaded')
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Failed to initialize Whisper:', error)
-      setModelLoadStatus(`Error: ${error.message}`)
+      setModelLoadStatus(`Error: ${error instanceof Error ? error.message : String(error)}`)
     } finally {
       setIsModelLoading(false)
     }
@@ -452,6 +514,15 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   // Cleanup on unmount
   useEffect(() => {
     return () => {
+      // Clean up audio element and blob URL
+      if (audioRef.current) {
+        audioRef.current.pause()
+        audioRef.current = null
+      }
+      if (audioUrlRef.current) {
+        URL.revokeObjectURL(audioUrlRef.current)
+        audioUrlRef.current = null
+      }
       if (silenceTimerRef.current) {
         clearTimeout(silenceTimerRef.current)
       }
@@ -462,33 +533,58 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     }
   }, [])
 
+  const value = useMemo(() => ({
+    // Voice Output
+    voiceOutputEnabled,
+    setVoiceOutputEnabled,
+    speakText,
+    stopSpeaking,
+    isSpeaking,
+    volume,
+    setVolume,
+    speed,
+    setSpeed,
+    skipOnNew,
+    setSkipOnNew,
+    setProjectVoice,
+    // Voice Input
+    isRecording,
+    isModelLoading,
+    isModelLoaded,
+    modelLoadProgress,
+    modelLoadStatus,
+    currentTranscription,
+    whisperModel,
+    setWhisperModel,
+    startRecording,
+    stopRecording
+  }), [
+    voiceOutputEnabled,
+    setVoiceOutputEnabled,
+    speakText,
+    stopSpeaking,
+    isSpeaking,
+    volume,
+    setVolume,
+    speed,
+    setSpeed,
+    skipOnNew,
+    setSkipOnNew,
+    setProjectVoice,
+    isRecording,
+    isModelLoading,
+    isModelLoaded,
+    modelLoadProgress,
+    modelLoadStatus,
+    currentTranscription,
+    whisperModel,
+    setWhisperModel,
+    startRecording,
+    stopRecording
+  ])
+
   return (
-    <VoiceContext.Provider value={{
-      // Voice Output
-      voiceOutputEnabled,
-      setVoiceOutputEnabled,
-      speakText,
-      stopSpeaking,
-      isSpeaking,
-      volume,
-      setVolume,
-      speed,
-      setSpeed,
-      skipOnNew,
-      setSkipOnNew,
-      setProjectVoice,
-      // Voice Input
-      isRecording,
-      isModelLoading,
-      isModelLoaded,
-      modelLoadProgress,
-      modelLoadStatus,
-      currentTranscription,
-      whisperModel,
-      setWhisperModel,
-      startRecording,
-      stopRecording
-    }}>
+    <VoiceContext.Provider value={value}>
       {children}
     </VoiceContext.Provider>
   )

@@ -1,5 +1,51 @@
-import React, { useCallback } from 'react'
+import React, { useCallback, memo } from 'react'
 import { OpenTab } from '../stores/workspace'
+
+interface TabItemProps {
+  tab: OpenTab
+  isActive: boolean
+  onSelect: (id: string) => void
+  onClose: (id: string) => void
+}
+
+const TabItem = memo(function TabItem({ tab, isActive, onSelect, onClose }: TabItemProps) {
+  const handleClick = useCallback(() => {
+    onSelect(tab.id)
+  }, [onSelect, tab.id])
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault()
+      onSelect(tab.id)
+    }
+  }, [onSelect, tab.id])
+
+  const handleClose = useCallback((e: React.MouseEvent) => {
+    e.stopPropagation()
+    onClose(tab.id)
+  }, [onClose, tab.id])
+
+  return (
+    <div
+      className={`tab ${isActive ? 'active' : ''}`}
+      role="tab"
+      aria-selected={isActive}
+      tabIndex={0}
+      onClick={handleClick}
+      onKeyDown={handleKeyDown}
+    >
+      <span className="tab-title" title={tab.title}>{tab.title}</span>
+      <button
+        className="tab-close"
+        onClick={handleClose}
+        title="Close tab"
+        aria-label="Close tab"
+      >
+        ×
+      </button>
+    </div>
+  )
+})
 
 interface TerminalTabsProps {
   tabs: OpenTab[]
@@ -22,25 +68,15 @@ export function TerminalTabs({ tabs, activeTabId, onSelectTab, onCloseTab }: Ter
   }, [tabs, activeTabId, onSelectTab])
 
   return (
-    <div className="tabs-bar" onWheel={handleWheel}>
+    <div className="tabs-bar" onWheel={handleWheel} role="tablist" aria-label="Terminal sessions">
       {tabs.map((tab) => (
-        <div
+        <TabItem
           key={tab.id}
-          className={`tab ${tab.id === activeTabId ? 'active' : ''}`}
-          onClick={() => onSelectTab(tab.id)}
-        >
-          <span className="tab-title" title={tab.title}>{tab.title}</span>
-          <button
-            className="tab-close"
-            onClick={(e) => {
-              e.stopPropagation()
-              onCloseTab(tab.id)
-            }}
-            title="Close tab"
-          >
-            ×
-          </button>
-        </div>
+          tab={tab}
+          isActive={tab.id === activeTabId}
+          onSelect={onSelectTab}
+          onClose={onCloseTab}
+        />
       ))}
     </div>
   )
