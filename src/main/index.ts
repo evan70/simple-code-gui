@@ -29,6 +29,7 @@ import { discoverSessions } from './session-discovery'
 import { getMetaProjectsPath } from './meta-project-sync'
 import { ApiServerManager, PromptResult } from './api-server'
 import { MobileServer } from './mobile-server'
+import { voiceManager } from './voice-manager'
 import { getEnhancedPathWithPortable, setPortableBinDirs } from './platform'
 import { getPortableBinDirs } from './portable-deps'
 import { initUpdater } from './updater'
@@ -377,6 +378,7 @@ app.whenReady().then(() => {
   // Start mobile server for phone app connectivity
   mobileServer.setPtyManager(ptyManager)
   mobileServer.setSessionStore(sessionStore)
+  mobileServer.setVoiceManager(voiceManager)
   mobileServer.start().then(() => {
     const info = mobileServer.getConnectionInfo()
     console.log(`[Mobile] Server ready at ${info.ips[0]}:${info.port}`)

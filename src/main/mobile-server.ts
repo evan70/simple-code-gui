@@ -32,6 +32,7 @@ export class MobileServer {
   // Service handlers - set by main process
   private ptyManager: any = null
   private sessionStore: any = null
+  private voiceManager: any = null
 
   constructor(config: MobileServerConfig = {}) {
     this.port = config.port || DEFAULT_PORT
@@ -208,6 +209,103 @@ export class MobileServer {
         res.status(500).json({ error: String(error) })
       }
     })
+
+    // TTS routes - stream audio from host's Piper/XTTS voices
+    this.app.post('/api/tts/speak', async (req: Request, res: Response) => {
+      try {
+        const { text } = req.body
+        if (!text) {
+          return res.status(400).json({ error: 'Text is required' })
+        }
+        if (!this.voiceManager) {
+          return res.status(500).json({ error: 'Voice manager not available' })
+        }
+
+        const result = await this.voiceManager.speak(text)
+        if (result.success && result.audioData) {
+          // Return audio as base64 for easy mobile playback
+          res.json({
+            success: true,
+            audioData: result.audioData,
+            format: 'wav'
+          })
+        } else {
+          res.status(500).json({ error: result.error || 'TTS failed' })
+        }
+      } catch (error) {
+        res.status(500).json({ error: String(error) })
+      }
+    })
+
+    // Stream audio directly as binary (more efficient for large audio)
+    this.app.post('/api/tts/speak/stream', async (req: Request, res: Response) => {
+      try {
+        const { text } = req.body
+        if (!text) {
+          return res.status(400).json({ error: 'Text is required' })
+        }
+        if (!this.voiceManager) {
+          return res.status(500).json({ error: 'Voice manager not available' })
+        }
+
+        const result = await this.voiceManager.speak(text)
+        if (result.success && result.audioData) {
+          // Decode base64 and send as binary
+          const audioBuffer = Buffer.from(result.audioData, 'base64')
+          res.setHeader('Content-Type', 'audio/wav')
+          res.setHeader('Content-Length', audioBuffer.length)
+          res.send(audioBuffer)
+        } else {
+          res.status(500).json({ error: result.error || 'TTS failed' })
+        }
+      } catch (error) {
+        res.status(500).json({ error: String(error) })
+      }
+    })
+
+    this.app.post('/api/tts/stop', async (_req: Request, res: Response) => {
+      try {
+        if (!this.voiceManager) {
+          return res.status(500).json({ error: 'Voice manager not available' })
+        }
+        this.voiceManager.stopSpeaking()
+        res.json({ success: true })
+      } catch (error) {
+        res.status(500).json({ error: String(error) })
+      }
+    })
+
+    this.app.get('/api/tts/voices', async (_req: Request, res: Response) => {
+      try {
+        if (!this.voiceManager) {
+          return res.status(500).json({ error: 'Voice manager not available' })
+        }
+        const installed = this.voiceManager.getInstalledPiperVoices()
+        const settings = this.voiceManager.getSettings()
+        res.json({
+          installed,
+          currentVoice: settings.ttsVoice,
+          currentEngine: settings.ttsEngine
+        })
+      } catch (error) {
+        res.status(500).json({ error: String(error) })
+      }
+    })
+
+    this.app.post('/api/tts/settings', async (req: Request, res: Response) => {
+      try {
+        const { voice, engine, speed } = req.body
+        if (!this.voiceManager) {
+          return res.status(500).json({ error: 'Voice manager not available' })
+        }
+        if (voice) this.voiceManager.setTTSVoice(voice)
+        if (engine) this.voiceManager.setTTSEngine(engine)
+        if (speed) this.voiceManager.setTTSSpeed(speed)
+        res.json({ success: true })
+      } catch (error) {
+        res.status(500).json({ error: String(error) })
+      }
+    })
   }
 
   private setupWebSocket(): void {
@@ -330,6 +428,10 @@ export class MobileServer {
 
   setSessionStore(store: any): void {
     this.sessionStore = store
+  }
+
+  setVoiceManager(manager: any): void {
+    this.voiceManager = manager
   }
 
   // Get connection info for QR code
