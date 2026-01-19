@@ -21,6 +21,9 @@ declare global {
 }
 
 function App() {
+  // Check if we're running in mobile/web context without Electron
+  const isElectronAvailable = typeof window !== 'undefined' && window.electronAPI
+
   const {
     projects,
     openTabs,
@@ -80,6 +83,21 @@ function App() {
   useEffect(() => {
     voiceOutputEnabledRef.current = voiceOutputEnabled
   }, [voiceOutputEnabled])
+
+  // Early return for mobile/web context without Electron
+  if (!isElectronAvailable) {
+    return (
+      <div className="app">
+        <div className="empty-state">
+          <h2>Mobile App</h2>
+          <p>Connect to your desktop host to start using Claude Terminal.</p>
+          <p className="install-note">
+            Scan the QR code shown on your desktop app to connect.
+          </p>
+        </div>
+      </div>
+    )
+  }
 
   // Apply per-project voice settings when active tab changes
   useEffect(() => {

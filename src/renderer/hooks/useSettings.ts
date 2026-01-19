@@ -24,6 +24,10 @@ export function useSettings(): UseSettingsReturn {
 
   // Load settings on mount
   useEffect(() => {
+    if (!window.electronAPI) {
+      setLoading(false)
+      return
+    }
     const loadSettings = async () => {
       try {
         const loadedSettings = await window.electronAPI.getSettings()

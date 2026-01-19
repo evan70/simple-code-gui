@@ -22,11 +22,12 @@ export function useUpdater(): UseUpdaterReturn {
 
   // Load app version on mount
   useEffect(() => {
-    window.electronAPI.getVersion().then(setAppVersion).catch(console.error)
+    window.electronAPI?.getVersion?.().then(setAppVersion).catch(console.error)
   }, [])
 
   // Subscribe to updater events
   useEffect(() => {
+    if (!window.electronAPI?.onUpdaterStatus) return
     const unsubscribe = window.electronAPI.onUpdaterStatus((data) => {
       setUpdateStatus({
         status: data.status as UpdateStatusType,
@@ -39,6 +40,7 @@ export function useUpdater(): UseUpdaterReturn {
   }, [])
 
   const downloadUpdate = useCallback(() => {
+    if (!window.electronAPI?.downloadUpdate) return
     setUpdateStatus(prev => ({
       status: 'downloading',
       version: prev.version,
@@ -54,7 +56,7 @@ export function useUpdater(): UseUpdaterReturn {
   }, [])
 
   const installUpdate = useCallback(() => {
-    window.electronAPI.installUpdate()
+    window.electronAPI?.installUpdate?.()
   }, [])
 
   return {

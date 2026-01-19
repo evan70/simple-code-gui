@@ -7,6 +7,7 @@ import { ClaudeMdEditor } from './ClaudeMdEditor.js'
 import { useVoice } from '../contexts/VoiceContext.js'
 import { useIsMobile } from '../hooks/useIsMobile.js'
 import { useSwipeGesture } from '../hooks/useSwipeGesture.js'
+import { HostQRDisplay } from './HostQRDisplay.js'
 import {
   SidebarProps,
   getCategoryGradient,
@@ -123,6 +124,7 @@ export function Sidebar({
   )
   const [claudeMdEditorModal, setClaudeMdEditorModal] = useState<{ project: Project } | null>(null)
   const [deleteConfirmModal, setDeleteConfirmModal] = useState<{ project: Project } | null>(null)
+  const [mobileConnectModal, setMobileConnectModal] = useState(false)
   const [taskCounts, setTaskCounts] = useState<Record<string, { open: number; inProgress: number }>>(
     {}
   )
@@ -716,6 +718,7 @@ export function Sidebar({
               await handleToggleApi(project)
               setContextMenu(null)
             }}
+            onOpenMobileConnect={() => setMobileConnectModal(true)}
           />
 
           {/* Context Menu */}
@@ -769,6 +772,21 @@ export function Sidebar({
                 setDeleteConfirmModal(null)
               }}
             />
+          )}
+
+          {/* Mobile Connect Modal */}
+          {mobileConnectModal && (
+            <div className="modal-overlay" onClick={() => setMobileConnectModal(false)}>
+              <div className="modal mobile-connect-modal" onClick={e => e.stopPropagation()}>
+                <div className="modal-header">
+                  <h3>Connect Mobile Device</h3>
+                  <button className="modal-close" onClick={() => setMobileConnectModal(false)}>×</button>
+                </div>
+                <div className="modal-content">
+                  <HostQRDisplay port={38470} />
+                </div>
+              </div>
+            </div>
           )}
 
           {/* Project Settings Modal */}
@@ -1022,6 +1040,7 @@ export function Sidebar({
           await handleToggleApi(project)
           setContextMenu(null)
         }}
+        onOpenMobileConnect={() => setMobileConnectModal(true)}
       />
       <div className="sidebar-resize-handle" onMouseDown={handleMouseDown} />
 
@@ -1076,6 +1095,21 @@ export function Sidebar({
             setDeleteConfirmModal(null)
           }}
         />
+      )}
+
+      {/* Mobile Connect Modal */}
+      {mobileConnectModal && (
+        <div className="modal-overlay" onClick={() => setMobileConnectModal(false)}>
+          <div className="modal mobile-connect-modal" onClick={e => e.stopPropagation()}>
+            <div className="modal-header">
+              <h3>Connect Mobile Device</h3>
+              <button className="modal-close" onClick={() => setMobileConnectModal(false)}>×</button>
+            </div>
+            <div className="modal-content">
+              <HostQRDisplay port={38470} />
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Project Settings Modal */}

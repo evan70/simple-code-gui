@@ -10,6 +10,7 @@ interface SidebarActionsProps {
   onOpenSettings: () => void
   onOpenProjectSettings: (project: Project) => void
   onToggleApi: (project: Project) => void
+  onOpenMobileConnect?: () => void
 }
 
 export const SidebarActions = React.memo(function SidebarActions({
@@ -20,6 +21,7 @@ export const SidebarActions = React.memo(function SidebarActions({
   onOpenSettings,
   onOpenProjectSettings,
   onToggleApi,
+  onOpenMobileConnect,
 }: SidebarActionsProps) {
   const activeTabIdRef = useRef(activeTabId)
   activeTabIdRef.current = activeTabId
@@ -74,6 +76,17 @@ export const SidebarActions = React.memo(function SidebarActions({
           aria-label="Refresh (Debug Mode)"
         >
           🔄
+        </button>
+      )}
+      {onOpenMobileConnect && (
+        <button
+          className="action-icon-btn"
+          onClick={onOpenMobileConnect}
+          tabIndex={0}
+          title="Connect Mobile Device"
+          aria-label="Connect Mobile Device"
+        >
+          📱
         </button>
       )}
       <button

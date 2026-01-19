@@ -133,13 +133,13 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       if (settings.voiceVolume !== undefined) setVolumeState(settings.voiceVolume)
       if (settings.voiceSpeed !== undefined) {
         setSpeedState(settings.voiceSpeed)
-        window.electronAPI.voiceApplySettings?.({ ttsSpeed: settings.voiceSpeed })
+        window.electronAPI?.voiceApplySettings?.({ ttsSpeed: settings.voiceSpeed })
       }
       if (settings.voiceSkipOnNew !== undefined) setSkipOnNewState(settings.voiceSkipOnNew)
       setSettingsLoaded(true)
     }).catch(() => setSettingsLoaded(true))
     // Load global voice settings for project override feature
-    window.electronAPI.voiceGetSettings?.().then((voiceSettings) => {
+    window.electronAPI?.voiceGetSettings?.().then((voiceSettings) => {
       if (voiceSettings) {
         globalVoiceRef.current = {
           voice: voiceSettings.ttsVoice || '',
@@ -212,7 +212,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
   const setSpeed = useCallback((s: number) => {
     const clamped = Math.max(0.5, Math.min(2.0, s))
     setSpeedState(clamped)
-    window.electronAPI.voiceApplySettings?.({ ttsSpeed: clamped })
+    window.electronAPI?.voiceApplySettings?.({ ttsSpeed: clamped })
     debouncedSaveVoiceSetting('voiceSpeed', clamped)
   }, [debouncedSaveVoiceSetting])
 
@@ -227,13 +227,13 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
     projectVoiceRef.current = settings
     // Apply project voice or restore global
     if (settings?.ttsVoice && settings?.ttsEngine) {
-      window.electronAPI.voiceApplySettings?.({
+      window.electronAPI?.voiceApplySettings?.({
         ttsVoice: settings.ttsVoice,
         ttsEngine: settings.ttsEngine
       })
     } else if (globalVoiceRef.current) {
       // Restore global voice
-      window.electronAPI.voiceApplySettings?.({
+      window.electronAPI?.voiceApplySettings?.({
         ttsVoice: globalVoiceRef.current.voice,
         ttsEngine: globalVoiceRef.current.engine as 'piper' | 'xtts'
       })
@@ -263,7 +263,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
           continue
         }
         // Call Piper TTS via IPC - returns audio as base64
-        const result = await window.electronAPI.voiceSpeak?.(text)
+        const result = await window.electronAPI?.voiceSpeak?.(text)
 
         // Check again after async operation
         if (processingGenerationRef.current !== myGeneration) {
@@ -376,7 +376,7 @@ export function VoiceProvider({ children }: { children: React.ReactNode }) {
       audioRef.current.pause()
       audioRef.current = null
     }
-    window.electronAPI.voiceStopSpeaking?.()
+    window.electronAPI?.voiceStopSpeaking?.()
     setIsSpeaking(false)
     isProcessingRef.current = false
   }, [])
