@@ -1,6 +1,7 @@
 import { app } from 'electron'
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs'
 import { join } from 'path'
+import { syncMetaProjects } from './meta-project-sync'
 
 export interface ProjectCategory {
   id: string
@@ -123,6 +124,7 @@ export class SessionStore {
   saveWorkspace(workspace: Workspace): void {
     this.data.workspace = workspace
     this.save()
+    syncMetaProjects(workspace)
   }
 
   getWindowBounds(): WindowBounds | undefined {
