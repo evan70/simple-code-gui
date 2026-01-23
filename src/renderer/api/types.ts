@@ -322,12 +322,6 @@ export interface Api {
    * @returns Unsubscribe function
    */
   onApiOpenSession: (callback: ApiOpenSessionCallback) => Unsubscribe
-
-  /**
-   * Get connection info for external components (HTTP backend only)
-   * @returns Connection info or undefined if not applicable
-   */
-  getConnectionInfo?: () => { host: string; port: number; token: string }
 }
 
 // ============================================================================

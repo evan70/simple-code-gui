@@ -13,7 +13,6 @@ interface MobileTerminalBarProps {
   onCommand: (command: string) => void
   currentBackend: string
   onBackendChange: (backend: string) => void
-  onOpenFileBrowser?: () => void
 }
 
 // Key codes
@@ -41,8 +40,7 @@ export function MobileTerminalBar({
   onInput,
   onCommand,
   currentBackend,
-  onBackendChange,
-  onOpenFileBrowser
+  onBackendChange
 }: MobileTerminalBarProps): React.ReactElement {
   const [openMenu, setOpenMenu] = useState<string | null>(null)
   const menuRef = useRef<HTMLDivElement>(null)
@@ -163,18 +161,6 @@ export function MobileTerminalBar({
         </button>
 
         <div className="mobile-bar-divider" />
-
-        {/* Files button */}
-        {onOpenFileBrowser && (
-          <button
-            className="mobile-bar-btn mobile-bar-btn--menu"
-            onClick={onOpenFileBrowser}
-            title="Browse Files"
-          >
-            <span className="mobile-bar-icon">📁</span>
-            <span className="mobile-bar-label">Files</span>
-          </button>
-        )}
 
         {/* Menu categories */}
         {menuCategories.map((category) => (
