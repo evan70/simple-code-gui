@@ -53,10 +53,38 @@ export const BACKEND_MODES = [
   { label: 'Aider', value: 'aider', desc: 'Use Aider AI pair programmer' },
 ]
 
+// Terminal ANSI colors customization
+export interface TerminalColorsCustomization {
+  black?: string
+  red?: string
+  green?: string
+  yellow?: string
+  blue?: string
+  magenta?: string
+  cyan?: string
+  white?: string
+}
+
+// Theme customization options
+export interface ThemeCustomization {
+  accentColor: string | null
+  backgroundColor: string | null
+  textColor: string | null
+  terminalColors: TerminalColorsCustomization | null
+}
+
+export const DEFAULT_THEME_CUSTOMIZATION: ThemeCustomization = {
+  accentColor: null,
+  backgroundColor: null,
+  textColor: null,
+  terminalColors: null
+}
+
 // Grouped state interfaces to reduce useState calls
 export interface GeneralSettings {
   defaultProjectDir: string
   selectedTheme: string
+  themeCustomization: ThemeCustomization
   autoAcceptTools: string[]
   permissionMode: string
   customTool: string
@@ -93,6 +121,7 @@ export interface UIState {
 export const DEFAULT_GENERAL: GeneralSettings = {
   defaultProjectDir: '',
   selectedTheme: 'default',
+  themeCustomization: DEFAULT_THEME_CUSTOMIZATION,
   autoAcceptTools: [],
   permissionMode: 'default',
   customTool: '',
@@ -138,7 +167,7 @@ export interface SettingsModalProps {
   isOpen: boolean
   onClose: () => void
   onThemeChange: (theme: Theme) => void
-  onSaved?: (settings: { defaultProjectDir: string; theme: string; autoAcceptTools?: string[]; permissionMode?: string; backend?: 'default' | 'claude' | 'gemini' | 'codex' | 'opencode' | 'aider' }) => void
+  onSaved?: (settings: { defaultProjectDir: string; theme: string; themeCustomization?: ThemeCustomization; autoAcceptTools?: string[]; permissionMode?: string; backend?: 'default' | 'claude' | 'gemini' | 'codex' | 'opencode' | 'aider' }) => void
   appVersion?: string
   updateStatus?: UpdateStatus
   onDownloadUpdate?: () => void

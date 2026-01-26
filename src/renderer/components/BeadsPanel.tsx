@@ -555,9 +555,9 @@ export function BeadsPanel({ projectPath, isExpanded, onToggle, onStartTaskInNew
           aria-expanded={isExpanded}
           aria-label="Toggle beads panel"
         >
-          {isExpanded ? '&#9660;' : '&#9654;'}
+          {isExpanded ? '▼' : '▶'}
         </button>
-        <span className="beads-icon">&#128255;</span>
+        <span className="beads-icon">📿</span>
         <span
           className={`beads-title ${projectPath && isReady ? 'clickable' : ''}`}
           role={projectPath && isReady ? 'button' : undefined}

@@ -51,7 +51,7 @@ export interface Theme {
 export const themes: Theme[] = [
   {
     id: 'default',
-    name: 'Claude Orange',
+    name: 'Dark',
     colors: {
       bgBase: '#0d0d0f',
       bgElevated: '#141417',
@@ -99,253 +99,8 @@ export const themes: Theme[] = [
     },
   },
   {
-    id: 'midnight',
-    name: 'Midnight Purple',
-    colors: {
-      bgBase: '#0f0a1a',
-      bgElevated: '#150f24',
-      bgSurface: '#1c1530',
-      bgHover: '#251d3d',
-      bgActive: '#2e254a',
-      borderSubtle: 'rgba(139, 92, 246, 0.1)',
-      borderDefault: 'rgba(139, 92, 246, 0.2)',
-      borderStrong: 'rgba(139, 92, 246, 0.3)',
-      textPrimary: '#e8e4f0',
-      textSecondary: '#a8a0b8',
-      textTertiary: '#6b6280',
-      textMuted: '#4a4458',
-      accent: '#a78bfa',
-      accentHover: '#c4b5fd',
-      accentSubtle: 'rgba(167, 139, 250, 0.15)',
-      accentGlow: 'rgba(167, 139, 250, 0.4)',
-      success: '#34d399',
-      successSubtle: 'rgba(52, 211, 153, 0.15)',
-      info: '#818cf8',
-      infoSubtle: 'rgba(129, 140, 248, 0.15)',
-    },
-    terminal: {
-      background: '#150f24',
-      foreground: '#e8e4f0',
-      cursor: '#a78bfa',
-      cursorAccent: '#150f24',
-      selection: 'rgba(167, 139, 250, 0.3)',
-      black: '#1c1530',
-      red: '#f87171',
-      green: '#34d399',
-      yellow: '#fbbf24',
-      blue: '#818cf8',
-      magenta: '#e879f9',
-      cyan: '#22d3ee',
-      white: '#e8e4f0',
-      brightBlack: '#6b6280',
-      brightRed: '#fca5a5',
-      brightGreen: '#6ee7b7',
-      brightYellow: '#fcd34d',
-      brightBlue: '#a5b4fc',
-      brightMagenta: '#f0abfc',
-      brightCyan: '#67e8f9',
-      brightWhite: '#ffffff',
-    },
-  },
-  {
-    id: 'forest',
-    name: 'Forest Green',
-    colors: {
-      bgBase: '#0a100e',
-      bgElevated: '#0f1814',
-      bgSurface: '#14201a',
-      bgHover: '#1a2922',
-      bgActive: '#20322a',
-      borderSubtle: 'rgba(74, 222, 128, 0.08)',
-      borderDefault: 'rgba(74, 222, 128, 0.15)',
-      borderStrong: 'rgba(74, 222, 128, 0.25)',
-      textPrimary: '#e4ebe8',
-      textSecondary: '#9aada3',
-      textTertiary: '#5e756a',
-      textMuted: '#3d4f46',
-      accent: '#4ade80',
-      accentHover: '#6ee7a0',
-      accentSubtle: 'rgba(74, 222, 128, 0.15)',
-      accentGlow: 'rgba(74, 222, 128, 0.4)',
-      success: '#4ade80',
-      successSubtle: 'rgba(74, 222, 128, 0.15)',
-      info: '#38bdf8',
-      infoSubtle: 'rgba(56, 189, 248, 0.15)',
-    },
-    terminal: {
-      background: '#0f1814',
-      foreground: '#e4ebe8',
-      cursor: '#4ade80',
-      cursorAccent: '#0f1814',
-      selection: 'rgba(74, 222, 128, 0.3)',
-      black: '#14201a',
-      red: '#f87171',
-      green: '#4ade80',
-      yellow: '#facc15',
-      blue: '#38bdf8',
-      magenta: '#c084fc',
-      cyan: '#2dd4bf',
-      white: '#e4ebe8',
-      brightBlack: '#5e756a',
-      brightRed: '#fca5a5',
-      brightGreen: '#86efac',
-      brightYellow: '#fde047',
-      brightBlue: '#7dd3fc',
-      brightMagenta: '#d8b4fe',
-      brightCyan: '#5eead4',
-      brightWhite: '#ffffff',
-    },
-  },
-  {
-    id: 'crimson',
-    name: 'Crimson Dark',
-    colors: {
-      bgBase: '#100808',
-      bgElevated: '#180c0c',
-      bgSurface: '#201010',
-      bgHover: '#2a1515',
-      bgActive: '#341a1a',
-      borderSubtle: 'rgba(239, 68, 68, 0.1)',
-      borderDefault: 'rgba(239, 68, 68, 0.2)',
-      borderStrong: 'rgba(239, 68, 68, 0.3)',
-      textPrimary: '#f0e8e8',
-      textSecondary: '#b8a0a0',
-      textTertiary: '#806060',
-      textMuted: '#584040',
-      accent: '#ef4444',
-      accentHover: '#f87171',
-      accentSubtle: 'rgba(239, 68, 68, 0.15)',
-      accentGlow: 'rgba(239, 68, 68, 0.4)',
-      success: '#4ade80',
-      successSubtle: 'rgba(74, 222, 128, 0.15)',
-      info: '#fb923c',
-      infoSubtle: 'rgba(251, 146, 60, 0.15)',
-    },
-    terminal: {
-      background: '#180c0c',
-      foreground: '#f0e8e8',
-      cursor: '#ef4444',
-      cursorAccent: '#180c0c',
-      selection: 'rgba(239, 68, 68, 0.3)',
-      black: '#201010',
-      red: '#ef4444',
-      green: '#4ade80',
-      yellow: '#fbbf24',
-      blue: '#60a5fa',
-      magenta: '#f472b6',
-      cyan: '#22d3ee',
-      white: '#f0e8e8',
-      brightBlack: '#806060',
-      brightRed: '#f87171',
-      brightGreen: '#86efac',
-      brightYellow: '#fcd34d',
-      brightBlue: '#93c5fd',
-      brightMagenta: '#f9a8d4',
-      brightCyan: '#67e8f9',
-      brightWhite: '#ffffff',
-    },
-  },
-  {
-    id: 'ocean',
-    name: 'Ocean Depths',
-    colors: {
-      bgBase: '#080d10',
-      bgElevated: '#0c1418',
-      bgSurface: '#101b20',
-      bgHover: '#152228',
-      bgActive: '#1a2a32',
-      borderSubtle: 'rgba(34, 211, 238, 0.08)',
-      borderDefault: 'rgba(34, 211, 238, 0.15)',
-      borderStrong: 'rgba(34, 211, 238, 0.25)',
-      textPrimary: '#e4eef0',
-      textSecondary: '#8fb8c4',
-      textTertiary: '#5a8090',
-      textMuted: '#3a5560',
-      accent: '#22d3ee',
-      accentHover: '#67e8f9',
-      accentSubtle: 'rgba(34, 211, 238, 0.15)',
-      accentGlow: 'rgba(34, 211, 238, 0.4)',
-      success: '#4ade80',
-      successSubtle: 'rgba(74, 222, 128, 0.15)',
-      info: '#38bdf8',
-      infoSubtle: 'rgba(56, 189, 248, 0.15)',
-    },
-    terminal: {
-      background: '#0c1418',
-      foreground: '#e4eef0',
-      cursor: '#22d3ee',
-      cursorAccent: '#0c1418',
-      selection: 'rgba(34, 211, 238, 0.3)',
-      black: '#101b20',
-      red: '#f87171',
-      green: '#4ade80',
-      yellow: '#fbbf24',
-      blue: '#38bdf8',
-      magenta: '#c084fc',
-      cyan: '#22d3ee',
-      white: '#e4eef0',
-      brightBlack: '#5a8090',
-      brightRed: '#fca5a5',
-      brightGreen: '#86efac',
-      brightYellow: '#fcd34d',
-      brightBlue: '#7dd3fc',
-      brightMagenta: '#d8b4fe',
-      brightCyan: '#67e8f9',
-      brightWhite: '#ffffff',
-    },
-  },
-  {
-    id: 'lavender',
-    name: 'Lavender Mist',
-    colors: {
-      bgBase: '#f5f0fa',
-      bgElevated: '#ebe4f5',
-      bgSurface: '#e0d8ed',
-      bgHover: '#d5cce5',
-      bgActive: '#c9bfdc',
-      borderSubtle: 'rgba(139, 92, 246, 0.15)',
-      borderDefault: 'rgba(139, 92, 246, 0.25)',
-      borderStrong: 'rgba(139, 92, 246, 0.35)',
-      textPrimary: '#2d2640',
-      textSecondary: '#524868',
-      textTertiary: '#7a6e90',
-      textMuted: '#a093b8',
-      accent: '#8b5cf6',
-      accentHover: '#7c3aed',
-      accentSubtle: 'rgba(139, 92, 246, 0.15)',
-      accentGlow: 'rgba(139, 92, 246, 0.3)',
-      success: '#10b981',
-      successSubtle: 'rgba(16, 185, 129, 0.15)',
-      info: '#6366f1',
-      infoSubtle: 'rgba(99, 102, 241, 0.15)',
-    },
-    terminal: {
-      background: '#ebe4f5',
-      foreground: '#2d2640',
-      cursor: '#8b5cf6',
-      cursorAccent: '#ebe4f5',
-      selection: 'rgba(139, 92, 246, 0.25)',
-      black: '#2d2640',
-      red: '#dc2626',
-      green: '#16a34a',
-      yellow: '#ca8a04',
-      blue: '#2563eb',
-      magenta: '#9333ea',
-      cyan: '#0891b2',
-      white: '#e0d8ed',
-      brightBlack: '#524868',
-      brightRed: '#ef4444',
-      brightGreen: '#22c55e',
-      brightYellow: '#eab308',
-      brightBlue: '#3b82f6',
-      brightMagenta: '#a855f7',
-      brightCyan: '#06b6d4',
-      brightWhite: '#f5f0fa',
-    },
-  },
-  {
     id: 'light',
-    name: 'Clean Light',
+    name: 'Light',
     colors: {
       bgBase: '#ffffff',
       bgElevated: '#f8f9fa',
@@ -441,56 +196,6 @@ export const themes: Theme[] = [
       brightWhite: '#ffffff',
     },
   },
-  {
-    id: 'mono',
-    name: 'Monochrome',
-    colors: {
-      bgBase: '#0a0a0a',
-      bgElevated: '#141414',
-      bgSurface: '#1e1e1e',
-      bgHover: '#282828',
-      bgActive: '#323232',
-      borderSubtle: 'rgba(255, 255, 255, 0.08)',
-      borderDefault: 'rgba(255, 255, 255, 0.15)',
-      borderStrong: 'rgba(255, 255, 255, 0.25)',
-      textPrimary: '#e5e5e5',
-      textSecondary: '#a3a3a3',
-      textTertiary: '#737373',
-      textMuted: '#525252',
-      accent: '#ffffff',
-      accentHover: '#e5e5e5',
-      accentSubtle: 'rgba(255, 255, 255, 0.1)',
-      accentGlow: 'rgba(255, 255, 255, 0.2)',
-      success: '#a3a3a3',
-      successSubtle: 'rgba(163, 163, 163, 0.15)',
-      info: '#a3a3a3',
-      infoSubtle: 'rgba(163, 163, 163, 0.15)',
-    },
-    terminal: {
-      background: '#141414',
-      foreground: '#e5e5e5',
-      cursor: '#ffffff',
-      cursorAccent: '#141414',
-      selection: 'rgba(255, 255, 255, 0.2)',
-      black: '#1e1e1e',
-      red: '#d4d4d4',
-      green: '#b3b3b3',
-      yellow: '#c9c9c9',
-      blue: '#a3a3a3',
-      magenta: '#b8b8b8',
-      cyan: '#adadad',
-      white: '#e5e5e5',
-      brightBlack: '#737373',
-      brightRed: '#e5e5e5',
-      brightGreen: '#d4d4d4',
-      brightYellow: '#e0e0e0',
-      brightBlue: '#c4c4c4',
-      brightMagenta: '#d9d9d9',
-      brightCyan: '#cecece',
-      brightWhite: '#ffffff',
-    },
-  },
-
   // === FATIGUE-REDUCING THEMES ===
 
   // Solarized Dark - CIELAB-optimized palette with fixed lightness relationships
@@ -651,19 +356,72 @@ export const themes: Theme[] = [
       brightWhite: '#eaeaef',
     },
   },
+
+  // Custom - user-defined colors, base identical to Dark theme
+  {
+    id: 'custom',
+    name: 'Custom',
+    colors: {
+      bgBase: '#0d0d0f',
+      bgElevated: '#141417',
+      bgSurface: '#1a1a1f',
+      bgHover: '#222228',
+      bgActive: '#2a2a32',
+      borderSubtle: 'rgba(255, 255, 255, 0.06)',
+      borderDefault: 'rgba(255, 255, 255, 0.1)',
+      borderStrong: 'rgba(255, 255, 255, 0.15)',
+      textPrimary: '#e8e8ed',
+      textSecondary: '#9898a0',
+      textTertiary: '#606068',
+      textMuted: '#48484f',
+      accent: '#e87c45',
+      accentHover: '#f08d58',
+      accentSubtle: 'rgba(232, 124, 69, 0.15)',
+      accentGlow: 'rgba(232, 124, 69, 0.4)',
+      success: '#4ade80',
+      successSubtle: 'rgba(74, 222, 128, 0.15)',
+      info: '#60a5fa',
+      infoSubtle: 'rgba(96, 165, 250, 0.15)',
+    },
+    terminal: {
+      background: '#141417',
+      foreground: '#e8e8ed',
+      cursor: '#e87c45',
+      cursorAccent: '#141417',
+      selection: 'rgba(232, 124, 69, 0.3)',
+      black: '#1a1a1f',
+      red: '#f14c4c',
+      green: '#4ade80',
+      yellow: '#fbbf24',
+      blue: '#60a5fa',
+      magenta: '#c084fc',
+      cyan: '#22d3ee',
+      white: '#e8e8ed',
+      brightBlack: '#606068',
+      brightRed: '#f87171',
+      brightGreen: '#86efac',
+      brightYellow: '#fcd34d',
+      brightBlue: '#93c5fd',
+      brightMagenta: '#d8b4fe',
+      brightCyan: '#67e8f9',
+      brightWhite: '#ffffff',
+    },
+  },
 ]
 
 export function getThemeById(id: string): Theme {
   return themes.find(t => t.id === id) || themes[0]
 }
 
-export function applyTheme(theme: Theme): void {
+export function applyTheme(theme: Theme, customization?: ThemeCustomization | null): void {
   const root = document.documentElement
   const c = theme.colors
+  const t = theme.terminal
 
   // Set theme ID for theme-specific CSS
   root.setAttribute('data-theme', theme.id)
 
+  // Apply base colors
   root.style.setProperty('--bg-base', c.bgBase)
   root.style.setProperty('--bg-elevated', c.bgElevated)
   root.style.setProperty('--bg-surface', c.bgSurface)
@@ -684,4 +442,360 @@ export function applyTheme(theme: Theme): void {
   root.style.setProperty('--success-subtle', c.successSubtle)
   root.style.setProperty('--info', c.info)
   root.style.setProperty('--info-subtle', c.infoSubtle)
+
+  // Apply base terminal colors (before customization)
+  root.style.setProperty('--terminal-red', t.red)
+  root.style.setProperty('--terminal-green', t.green)
+  root.style.setProperty('--terminal-yellow', t.yellow)
+  root.style.setProperty('--terminal-blue', t.blue)
+  root.style.setProperty('--terminal-magenta', t.magenta)
+  root.style.setProperty('--terminal-cyan', t.cyan)
+  root.style.setProperty('--terminal-bright-red', t.brightRed)
+  root.style.setProperty('--terminal-bright-green', t.brightGreen)
+  root.style.setProperty('--terminal-bright-yellow', t.brightYellow)
+  root.style.setProperty('--terminal-bright-blue', t.brightBlue)
+  root.style.setProperty('--terminal-bright-magenta', t.brightMagenta)
+  root.style.setProperty('--terminal-bright-cyan', t.brightCyan)
+
+  // Apply CSS overrides only for the custom theme
+  const activeCustomization = (customization && theme.id === 'custom') ? customization : null
+  if (activeCustomization) {
+    if (activeCustomization.backgroundColor) {
+      applyBackgroundColor(activeCustomization.backgroundColor)
+    }
+    if (activeCustomization.textColor) {
+      const bgColor = activeCustomization.backgroundColor || theme.colors.bgBase
+      applyTextColor(activeCustomization.textColor, bgColor)
+    }
+    if (activeCustomization.accentColor) {
+      applyAccentColor(activeCustomization.accentColor)
+    }
+    if (activeCustomization.terminalColors) {
+      applyTerminalColors(activeCustomization.terminalColors, theme)
+    }
+  }
+
+  // Always broadcast terminal theme update and cache for late-mounting terminals
+  const terminalTheme = getTerminalThemeWithCustomization(theme, activeCustomization)
+  _lastTerminalTheme = terminalTheme
+  console.log('[Theme] applyTheme dispatching terminal-theme-update, bg:', terminalTheme.background, 'theme:', theme.id)
+  window.dispatchEvent(new CustomEvent('terminal-theme-update', { detail: terminalTheme }))
+}
+
+// Generate accent color variants from a hex color
+export function generateAccentColors(hex: string): {
+  accent: string
+  accentHover: string
+  accentSubtle: string
+  accentGlow: string
+} {
+  // Parse hex to RGB
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+
+  // Lighten by ~10% for hover
+  const lighten = (value: number) => Math.min(255, Math.round(value + (255 - value) * 0.15))
+  const hoverR = lighten(r)
+  const hoverG = lighten(g)
+  const hoverB = lighten(b)
+
+  return {
+    accent: hex,
+    accentHover: `#${hoverR.toString(16).padStart(2, '0')}${hoverG.toString(16).padStart(2, '0')}${hoverB.toString(16).padStart(2, '0')}`,
+    accentSubtle: `rgba(${r}, ${g}, ${b}, 0.15)`,
+    accentGlow: `rgba(${r}, ${g}, ${b}, 0.4)`,
+  }
+}
+
+// Apply custom accent color to CSS variables
+export function applyAccentColor(hex: string): void {
+  const root = document.documentElement
+  const colors = generateAccentColors(hex)
+
+  root.style.setProperty('--accent', colors.accent)
+  root.style.setProperty('--accent-hover', colors.accentHover)
+  root.style.setProperty('--accent-subtle', colors.accentSubtle)
+  root.style.setProperty('--accent-glow', colors.accentGlow)
+
+  // Also update terminal cursor/selection colors via CSS variables
+  // These are picked up by xterm when terminals refresh
+  root.style.setProperty('--terminal-cursor', colors.accent)
+  root.style.setProperty('--terminal-selection', `rgba(${parseInt(hex.slice(1, 3), 16)}, ${parseInt(hex.slice(3, 5), 16)}, ${parseInt(hex.slice(5, 7), 16)}, 0.3)`)
+}
+
+// Terminal ANSI colors customization
+export interface TerminalColorsCustomization {
+  black?: string
+  red?: string
+  green?: string
+  yellow?: string
+  blue?: string
+  magenta?: string
+  cyan?: string
+  white?: string
+}
+
+// Theme customization options
+export interface ThemeCustomization {
+  accentColor: string | null
+  backgroundColor: string | null
+  textColor: string | null
+  terminalColors: TerminalColorsCustomization | null
+}
+
+// Helper to parse hex color to RGB
+function hexToRgb(hex: string): { r: number; g: number; b: number } {
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  return { r, g, b }
+}
+
+// Helper to convert RGB to hex
+function rgbToHex(r: number, g: number, b: number): string {
+  return `#${Math.round(r).toString(16).padStart(2, '0')}${Math.round(g).toString(16).padStart(2, '0')}${Math.round(b).toString(16).padStart(2, '0')}`
+}
+
+// Desaturate a color by a percentage (0 = full color, 100 = grayscale)
+function desaturate(hex: string, amount: number): string {
+  const { r, g, b } = hexToRgb(hex)
+  const gray = 0.299 * r + 0.587 * g + 0.114 * b  // Luminance formula
+  const factor = amount / 100
+  const newR = r + (gray - r) * factor
+  const newG = g + (gray - g) * factor
+  const newB = b + (gray - b) * factor
+  return rgbToHex(newR, newG, newB)
+}
+
+// Adjust brightness of a color (-100 to +100)
+function adjustBrightness(hex: string, amount: number): string {
+  const { r, g, b } = hexToRgb(hex)
+  const factor = amount / 100
+  let newR, newG, newB
+  if (factor > 0) {
+    // Lighten
+    newR = r + (255 - r) * factor
+    newG = g + (255 - g) * factor
+    newB = b + (255 - b) * factor
+  } else {
+    // Darken
+    newR = r * (1 + factor)
+    newG = g * (1 + factor)
+    newB = b * (1 + factor)
+  }
+  return rgbToHex(Math.max(0, Math.min(255, newR)), Math.max(0, Math.min(255, newG)), Math.max(0, Math.min(255, newB)))
+}
+
+// Determine if a color is light or dark
+export function isLightColor(hex: string): boolean {
+  const { r, g, b } = hexToRgb(hex)
+  // Use relative luminance formula
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+  return luminance > 0.5
+}
+
+// Derive background color hierarchy from a base color
+export function deriveBackgroundColors(baseHex: string, isLight: boolean): {
+  bgBase: string
+  bgElevated: string
+  bgSurface: string
+  bgHover: string
+  bgActive: string
+  borderSubtle: string
+  borderDefault: string
+  borderStrong: string
+} {
+  const { r, g, b } = hexToRgb(baseHex)
+  // For dark themes, lighten; for light themes, darken
+  const direction = isLight ? -1 : 1
+
+  return {
+    bgBase: baseHex,
+    bgElevated: adjustBrightness(baseHex, direction * 5),
+    bgSurface: adjustBrightness(baseHex, direction * 10),
+    bgHover: adjustBrightness(baseHex, direction * 15),
+    bgActive: adjustBrightness(baseHex, direction * 20),
+    borderSubtle: isLight ? `rgba(0, 0, 0, 0.06)` : `rgba(255, 255, 255, 0.06)`,
+    borderDefault: isLight ? `rgba(0, 0, 0, 0.1)` : `rgba(255, 255, 255, 0.1)`,
+    borderStrong: isLight ? `rgba(0, 0, 0, 0.15)` : `rgba(255, 255, 255, 0.15)`,
+  }
+}
+
+// Derive text color hierarchy from a primary text color
+export function deriveTextColors(primaryHex: string, baseBackground: string): {
+  textPrimary: string
+  textSecondary: string
+  textTertiary: string
+  textMuted: string
+} {
+  const isLight = isLightColor(baseBackground)
+  // For light backgrounds (dark text), lighten to get secondary etc.
+  // For dark backgrounds (light text), darken to get secondary etc.
+  const direction = isLight ? 1 : -1
+
+  return {
+    textPrimary: primaryHex,
+    textSecondary: adjustBrightness(primaryHex, direction * 35),
+    textTertiary: adjustBrightness(primaryHex, direction * 55),
+    textMuted: adjustBrightness(primaryHex, direction * 70),
+  }
+}
+
+// Derive bright variant of a terminal color (lighten by 25%)
+export function deriveBrightColor(hex: string): string {
+  return adjustBrightness(hex, 25)
+}
+
+// Apply custom background color and derived colors
+export function applyBackgroundColor(hex: string): void {
+  const root = document.documentElement
+  const isLight = isLightColor(hex)
+  const colors = deriveBackgroundColors(hex, isLight)
+
+  root.style.setProperty('--bg-base', colors.bgBase)
+  root.style.setProperty('--bg-elevated', colors.bgElevated)
+  root.style.setProperty('--bg-surface', colors.bgSurface)
+  root.style.setProperty('--bg-hover', colors.bgHover)
+  root.style.setProperty('--bg-active', colors.bgActive)
+  root.style.setProperty('--border-subtle', colors.borderSubtle)
+  root.style.setProperty('--border-default', colors.borderDefault)
+  root.style.setProperty('--border-strong', colors.borderStrong)
+}
+
+// Apply custom text color and derived colors
+export function applyTextColor(hex: string, backgroundColor: string): void {
+  const root = document.documentElement
+  const colors = deriveTextColors(hex, backgroundColor)
+
+  root.style.setProperty('--text-primary', colors.textPrimary)
+  root.style.setProperty('--text-secondary', colors.textSecondary)
+  root.style.setProperty('--text-tertiary', colors.textTertiary)
+  root.style.setProperty('--text-muted', colors.textMuted)
+}
+
+// Apply custom terminal colors (only the specified ones)
+export function applyTerminalColors(colors: TerminalColorsCustomization, theme: Theme): void {
+  const root = document.documentElement
+  const t = theme.terminal
+
+  // Apply each custom color and its bright variant
+  if (colors.black) {
+    root.style.setProperty('--terminal-black', colors.black)
+  }
+  if (colors.red) {
+    root.style.setProperty('--terminal-red', colors.red)
+    root.style.setProperty('--terminal-bright-red', deriveBrightColor(colors.red))
+  }
+  if (colors.green) {
+    root.style.setProperty('--terminal-green', colors.green)
+    root.style.setProperty('--terminal-bright-green', deriveBrightColor(colors.green))
+  }
+  if (colors.yellow) {
+    root.style.setProperty('--terminal-yellow', colors.yellow)
+    root.style.setProperty('--terminal-bright-yellow', deriveBrightColor(colors.yellow))
+  }
+  if (colors.blue) {
+    root.style.setProperty('--terminal-blue', colors.blue)
+    root.style.setProperty('--terminal-bright-blue', deriveBrightColor(colors.blue))
+  }
+  if (colors.magenta) {
+    root.style.setProperty('--terminal-magenta', colors.magenta)
+    root.style.setProperty('--terminal-bright-magenta', deriveBrightColor(colors.magenta))
+  }
+  if (colors.cyan) {
+    root.style.setProperty('--terminal-cyan', colors.cyan)
+    root.style.setProperty('--terminal-bright-cyan', deriveBrightColor(colors.cyan))
+  }
+  if (colors.white) {
+    root.style.setProperty('--terminal-white', colors.white)
+    root.style.setProperty('--terminal-bright-white', deriveBrightColor(colors.white))
+  }
+}
+
+// Cache the last-applied terminal theme so terminals that mount after applyTheme can use it
+let _lastTerminalTheme: Record<string, string> | null = null
+
+/** Returns the most recently applied terminal theme (for terminals that mount after the event) */
+export function getLastTerminalTheme(): Record<string, string> | null {
+  return _lastTerminalTheme
+}
+
+// Generate xterm-compatible theme object with customizations applied
+export function getTerminalThemeWithCustomization(theme: Theme, customization: ThemeCustomization | null): {
+  background: string
+  foreground: string
+  cursor: string
+  cursorAccent: string
+  selectionBackground: string
+  black: string
+  red: string
+  green: string
+  yellow: string
+  blue: string
+  magenta: string
+  cyan: string
+  white: string
+  brightBlack: string
+  brightRed: string
+  brightGreen: string
+  brightYellow: string
+  brightBlue: string
+  brightMagenta: string
+  brightCyan: string
+  brightWhite: string
+} {
+  const t = theme.terminal
+  const tc = customization?.terminalColors
+
+  // Get background (from customization or theme)
+  let background = t.background
+  if (customization?.backgroundColor) {
+    const isLight = isLightColor(customization.backgroundColor)
+    const derived = deriveBackgroundColors(customization.backgroundColor, isLight)
+    background = derived.bgElevated
+  }
+
+  // Get foreground (from customization or theme)
+  const foreground = customization?.textColor || t.foreground
+
+  // Get cursor color (accent or theme default)
+  const cursorColor = customization?.accentColor || t.cursor
+  const selectionColor = customization?.accentColor
+    ? `rgba(${parseInt(customization.accentColor.slice(1, 3), 16)}, ${parseInt(customization.accentColor.slice(3, 5), 16)}, ${parseInt(customization.accentColor.slice(5, 7), 16)}, 0.3)`
+    : t.selection
+
+  // Get terminal colors (custom or theme defaults)
+  const red = tc?.red || t.red
+  const green = tc?.green || t.green
+  const yellow = tc?.yellow || t.yellow
+  const blue = tc?.blue || t.blue
+  const magenta = tc?.magenta || t.magenta
+  const cyan = tc?.cyan || t.cyan
+  const white = tc?.white || t.white
+  const black = tc?.black || t.black
+
+  return {
+    background,
+    foreground,
+    cursor: cursorColor,
+    cursorAccent: background,
+    selectionBackground: selectionColor,
+    black,
+    red,
+    green,
+    yellow,
+    blue,
+    magenta,
+    cyan,
+    white,
+    brightBlack: t.brightBlack,
+    brightRed: tc?.red ? deriveBrightColor(tc.red) : t.brightRed,
+    brightGreen: tc?.green ? deriveBrightColor(tc.green) : t.brightGreen,
+    brightYellow: tc?.yellow ? deriveBrightColor(tc.yellow) : t.brightYellow,
+    brightBlue: tc?.blue ? deriveBrightColor(tc.blue) : t.brightBlue,
+    brightMagenta: tc?.magenta ? deriveBrightColor(tc.magenta) : t.brightMagenta,
+    brightCyan: tc?.cyan ? deriveBrightColor(tc.cyan) : t.brightCyan,
+    brightWhite: tc?.white ? deriveBrightColor(tc.white) : t.brightWhite,
+  }
 }

@@ -277,11 +277,11 @@ function MainApp({ api, isElectron, onDisconnect }: MainAppProps) {
         // Check if Claude, npm, and git-bash are installed
         await checkInstallation()
 
-        // Load and apply theme
+        // Load and apply theme with any saved customizations
         const loadedSettings = await api.getSettings()
         setSettings(loadedSettings)
         const theme = getThemeById(loadedSettings.theme || 'default')
-        applyTheme(theme)
+        applyTheme(theme, loadedSettings.themeCustomization)
         setCurrentTheme(theme)
 
         // Kill any existing PTYs from hot reload (but don't clear buffers - they'll be restored)

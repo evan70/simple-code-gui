@@ -17,6 +17,7 @@ import {
   DEFAULT_VOICE,
   DEFAULT_XTTS,
   DEFAULT_UI,
+  DEFAULT_THEME_CUSTOMIZATION,
 } from './settings'
 import type {
   GeneralSettings,
@@ -24,7 +25,29 @@ import type {
   XttsSettings,
   UIState,
   SettingsModalProps,
+  ThemeCustomization,
 } from './settings'
+
+// Migrate old slider-based customization to new color-based format
+function migrateThemeCustomization(saved: unknown): ThemeCustomization {
+  if (!saved || typeof saved !== 'object') return DEFAULT_THEME_CUSTOMIZATION
+  const obj = saved as Record<string, unknown>
+  // Old format had terminalSaturation/backgroundBrightness — discard and use defaults
+  if ('terminalSaturation' in obj || 'backgroundBrightness' in obj) {
+    return {
+      accentColor: (typeof obj.accentColor === 'string' ? obj.accentColor : null),
+      backgroundColor: null,
+      textColor: null,
+      terminalColors: null
+    }
+  }
+  return {
+    accentColor: (typeof obj.accentColor === 'string' ? obj.accentColor : null),
+    backgroundColor: (typeof obj.backgroundColor === 'string' ? obj.backgroundColor : null),
+    textColor: (typeof obj.textColor === 'string' ? obj.textColor : null),
+    terminalColors: (obj.terminalColors && typeof obj.terminalColors === 'object' ? obj.terminalColors as ThemeCustomization['terminalColors'] : null)
+  }
+}
 
 export function SettingsModal({
   isOpen,
@@ -87,6 +110,7 @@ export function SettingsModal({
           ...prev,
           defaultProjectDir: settings.defaultProjectDir || '',
           selectedTheme: settings.theme || 'default',
+          themeCustomization: migrateThemeCustomization(settings.themeCustomization),
           autoAcceptTools: settings.autoAcceptTools || [],
           permissionMode: settings.permissionMode || 'default',
           backend: settings.backend || 'default'
@@ -135,6 +159,7 @@ export function SettingsModal({
     const newSettings = {
       defaultProjectDir: general.defaultProjectDir,
       theme: general.selectedTheme,
+      themeCustomization: general.themeCustomization,
       autoAcceptTools: general.autoAcceptTools,
       permissionMode: general.permissionMode,
       backend: general.backend
@@ -257,8 +282,10 @@ export function SettingsModal({
 
           <ThemeSettings
             selectedTheme={general.selectedTheme}
+            customization={general.themeCustomization}
             onThemeChange={onThemeChange}
             onSelect={(themeId) => setGeneral(prev => ({ ...prev, selectedTheme: themeId }))}
+            onCustomizationChange={(customization) => setGeneral(prev => ({ ...prev, themeCustomization: customization }))}
           />
 
           <ProjectDirectorySettings

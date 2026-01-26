@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { Terminal as XTerm } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import type { Theme } from '../../themes.js'
+import { getLastTerminalTheme } from '../../themes.js'
 import type { Api } from '../../api/types.js'
 import {
   ENABLE_WEBGL,
@@ -164,31 +165,37 @@ export function useTerminalSetup({
 
       console.log('[Terminal] Container ready (v3), initializing xterm:', Math.round(computedW), 'x', Math.round(computedH))
 
+      // Use cached terminal theme if available (has fully-resolved customization),
+      // otherwise fall back to base theme colors. This handles the case where
+      // applyTheme() ran before any terminals mounted (startup with Custom theme).
+      const cachedTheme = getLastTerminalTheme()
+      const initialTheme = cachedTheme || {
+        background: t.background,
+        foreground: t.foreground,
+        cursor: t.cursor,
+        cursorAccent: t.cursorAccent,
+        selectionBackground: t.selection,
+        black: t.black,
+        red: t.red,
+        green: t.green,
+        yellow: t.yellow,
+        blue: t.blue,
+        magenta: t.magenta,
+        cyan: t.cyan,
+        white: t.white,
+        brightBlack: t.brightBlack,
+        brightRed: t.brightRed,
+        brightGreen: t.brightGreen,
+        brightYellow: t.brightYellow,
+        brightBlue: t.brightBlue,
+        brightMagenta: t.brightMagenta,
+        brightCyan: t.brightCyan,
+        brightWhite: t.brightWhite,
+      }
+
       const newTerminal = new XTerm({
         ...TERMINAL_CONFIG,
-        theme: {
-          background: t.background,
-          foreground: t.foreground,
-          cursor: t.cursor,
-          cursorAccent: t.cursorAccent,
-          selectionBackground: t.selection,
-          black: t.black,
-          red: t.red,
-          green: t.green,
-          yellow: t.yellow,
-          blue: t.blue,
-          magenta: t.magenta,
-          cyan: t.cyan,
-          white: t.white,
-          brightBlack: t.brightBlack,
-          brightRed: t.brightRed,
-          brightGreen: t.brightGreen,
-          brightYellow: t.brightYellow,
-          brightBlue: t.brightBlue,
-          brightMagenta: t.brightMagenta,
-          brightCyan: t.brightCyan,
-          brightWhite: t.brightWhite,
-        },
+        theme: initialTheme,
       })
 
       const newFitAddon = new FitAddon()
@@ -628,9 +635,30 @@ export function useTerminalSetup({
       }, 50)
     }
 
+    // Listen for theme customization updates
+    const handleThemeUpdate = (event: Event) => {
+      const customEvent = event as CustomEvent
+      console.log('[Terminal] theme-update event received, terminal:', !!terminal, 'detail:', !!customEvent.detail)
+      if (terminal && customEvent.detail) {
+        terminal.options.theme = customEvent.detail
+        // Force viewport background + repaint (WebGL addon workaround)
+        const viewport = containerRef.current?.querySelector('.xterm-viewport') as HTMLElement
+        if (viewport && customEvent.detail.background) {
+          viewport.style.backgroundColor = customEvent.detail.background
+        }
+        terminal.refresh(0, terminal.rows - 1)
+        // Clear WebGL texture atlas if addon is loaded
+        if (webglAddonRef) {
+          try { (webglAddonRef as any).clearTextureAtlas?.() } catch { /* ignore */ }
+        }
+      }
+    }
+    window.addEventListener('terminal-theme-update', handleThemeUpdate)
+
     // Cleanup
     return () => {
       disposed = true
+      window.removeEventListener('terminal-theme-update', handleThemeUpdate)
       if (initCheckInterval) clearInterval(initCheckInterval)
       if (readyCheckInterval) clearInterval(readyCheckInterval)
       cleanupData?.()
@@ -663,6 +691,23 @@ export function useTerminalSetup({
       }
     }
   }, [ptyId])
+
+  // Sync terminal theme when theme prop changes (handles switching themes in settings).
+  // The main effect only depends on ptyId, so theme switches don't re-run it.
+  // applyTheme() caches the resolved terminal theme before this re-render fires.
+  useEffect(() => {
+    const cachedTheme = getLastTerminalTheme()
+    console.log('[Terminal] useEffect[theme] fired, terminal:', !!terminalRef.current, 'cached:', !!cachedTheme, 'bg:', cachedTheme?.background)
+    if (terminalRef.current && cachedTheme) {
+      terminalRef.current.options.theme = cachedTheme
+      // Force viewport background + repaint (WebGL addon workaround)
+      const viewport = containerRef.current?.querySelector('.xterm-viewport') as HTMLElement
+      if (viewport && cachedTheme.background) {
+        viewport.style.backgroundColor = cachedTheme.background
+      }
+      terminalRef.current.refresh(0, terminalRef.current.rows - 1)
+    }
+  }, [theme])
 
   return {
     containerRef,
