@@ -88,6 +88,26 @@ declare global {
       refresh: () => Promise<void>
       openExternal: (url: string) => Promise<void>
       debugLog: (message: string) => void
+
+      // Beads
+      beadsCheck: (cwd: string) => Promise<{ installed: boolean; initialized: boolean }>
+      beadsInit: (cwd: string) => Promise<{ success: boolean; error?: string }>
+      beadsInstall: () => Promise<{ success: boolean; error?: string; method?: string; needsPython?: boolean }>
+      beadsReady: (cwd: string) => Promise<{ success: boolean; tasks?: unknown[]; error?: string }>
+      beadsList: (cwd: string) => Promise<{ success: boolean; tasks?: unknown[]; error?: string }>
+      beadsShow: (cwd: string, taskId: string) => Promise<{ success: boolean; task?: unknown; error?: string }>
+      beadsCreate: (cwd: string, title: string, description?: string, priority?: number, type?: string, labels?: string) => Promise<{ success: boolean; task?: unknown; error?: string }>
+      beadsComplete: (cwd: string, taskId: string) => Promise<{ success: boolean; result?: unknown; error?: string }>
+      beadsDelete: (cwd: string, taskId: string) => Promise<{ success: boolean; error?: string }>
+      beadsStart: (cwd: string, taskId: string) => Promise<{ success: boolean; error?: string }>
+      beadsUpdate: (cwd: string, taskId: string, status?: string, title?: string, description?: string, priority?: number) => Promise<{ success: boolean; error?: string }>
+      beadsWatch: (cwd: string) => Promise<{ success: boolean; error?: string }>
+      beadsUnwatch: (cwd: string) => Promise<{ success: boolean; error?: string }>
+      onBeadsTasksChanged: (callback: (data: { cwd: string }) => void) => () => void
+
+      // Install progress
+      pythonInstall: () => Promise<{ success: boolean; error?: string; method?: string }>
+      onInstallProgress: (callback: (data: { type: string; status: string; percent?: number }) => void) => () => void
     }
   }
 }

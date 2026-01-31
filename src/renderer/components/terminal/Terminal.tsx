@@ -143,36 +143,6 @@ export function Terminal({ ptyId, isActive, theme, onFocus, projectPath, backend
     }
   }, [isActive, ptyId, containerRef, terminalRef, fitAddonRef, userScrolledUpRef])
 
-  // Update terminal theme when theme changes
-  useEffect(() => {
-    if (terminalRef.current) {
-      const t = theme.terminal
-      terminalRef.current.options.theme = {
-        background: t.background,
-        foreground: t.foreground,
-        cursor: t.cursor,
-        cursorAccent: t.cursorAccent,
-        selectionBackground: t.selection,
-        black: t.black,
-        red: t.red,
-        green: t.green,
-        yellow: t.yellow,
-        blue: t.blue,
-        magenta: t.magenta,
-        cyan: t.cyan,
-        white: t.white,
-        brightBlack: t.brightBlack,
-        brightRed: t.brightRed,
-        brightGreen: t.brightGreen,
-        brightYellow: t.brightYellow,
-        brightBlue: t.brightBlue,
-        brightMagenta: t.brightMagenta,
-        brightCyan: t.brightCyan,
-        brightWhite: t.brightWhite,
-      }
-    }
-  }, [theme, terminalRef])
-
   // Handle file drop from file manager
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault()
