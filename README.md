@@ -92,6 +92,19 @@ Download from [GitHub Releases](https://github.com/DonutsDelivery/simple-code-gu
 | macOS (untested)| `.dmg` (Apple Silicon) |
 | Linux | `.AppImage` or `.deb` |
 
+If you download Simple Code GUI on macOS and get a message like:
+	•	“Simple Code GUI.app is damaged and can’t be opened”
+	•	“…can’t be opened because it is damaged”
+
+…it’s usually not actually corrupted. This is macOS Gatekeeper reacting to a quarantined download (common when downloaded via Safari) plus an app that’s not notarized / not Developer ID signed (many Electron apps built locally are “ad-hoc signed”).
+
+Why it happens
+
+macOS attaches a com.apple.quarantine attribute to apps downloaded from the internet. When Gatekeeper evaluates a quarantined app that isn’t notarized (or is ad-hoc signed), the user sometimes gets the misleading “damaged” dialog instead of a clearer “unidentified developer” warning.
+Fix: Remove the quarantine attribute and reopen the app:
+sudo xattr -dr com.apple.quarantine "/Applications/Simple Code GUI.app"
+open "/Applications/Simple Code GUI.app"
+
 ### Arch Linux (AUR)
 
 ```bash
