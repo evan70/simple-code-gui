@@ -13,6 +13,9 @@ export interface HostConfig {
   fingerprint?: string // Server fingerprint (TOFU - stored after first verify)
   pendingNonce?: string // Nonce to verify on connect
   nonceExpires?: number // When the nonce expires
+  // v3 security fields (TLS certificate pinning)
+  secure?: boolean // Use HTTPS/WSS (server has TLS enabled)
+  certFingerprint?: string // SHA256 of server's TLS certificate for pinning
 }
 
 export type ConnectionState = 'disconnected' | 'connecting' | 'verifying' | 'connected' | 'error'
@@ -55,6 +58,8 @@ export type UseHostConnectionReturn = HostConnectionState & HostConnectionAction
 export interface ConnectOptions {
   nonce?: string
   fingerprint?: string
+  certFingerprint?: string
+  secure?: boolean
   token?: string
   host?: string
   port?: number

@@ -36,14 +36,15 @@ export function isLocalNetwork(hostname: string): boolean {
 }
 
 /**
- * Build HTTP URL with proper protocol based on network type
+ * Build HTTP URL with proper protocol based on network type or secure flag
  */
-export function buildHttpUrl(host: { host: string; port: number }, path: string): string {
+export function buildHttpUrl(host: { host: string; port: number; secure?: boolean }, path: string): string {
   // Validate port before building URL
   if (!host.port || host.port < 1 || host.port > 65535) {
     console.error('[MobileApp] Invalid port for HTTP URL:', host.port)
     throw new Error(`Invalid port: ${host.port}`)
   }
-  const protocol = isLocalNetwork(host.host) ? 'http' : 'https'
+  // Use https if server has TLS enabled, otherwise fallback to network-based detection
+  const protocol = host.secure ?? !isLocalNetwork(host.host) ? 'https' : 'http'
   return `${protocol}://${host.host}:${host.port}${path}`
 }

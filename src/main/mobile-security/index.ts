@@ -22,8 +22,19 @@ export { checkRateLimit, recordFailedAuth, clearRateLimit, getRateLimitStatus, a
 // Endpoint Rate Limiting
 export { checkEndpointRateLimit, cleanupEndpointRateLimits, endpointRateLimitConfig } from './endpoint-rate-limit.js'
 
-// Server Fingerprint
+// Server Fingerprint (legacy - use certificate fingerprint for new code)
 export { getOrCreateFingerprint, getFormattedFingerprint } from './fingerprint.js'
+
+// TLS Certificate (for HTTPS with certificate pinning)
+export {
+  getOrCreateCertificate,
+  getCertificateFingerprint,
+  getFormattedCertFingerprint,
+  getTlsOptions,
+  regenerateCertificate,
+  certificateExists
+} from './certificate.js'
+export type { CertificateData } from './certificate.js'
 
 // Nonce Management
 export { startNonceCleanup, stopNonceCleanup, createNonce, verifyNonce, getNonceInfo, nonceConfig } from './nonces.js'

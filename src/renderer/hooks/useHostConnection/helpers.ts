@@ -70,8 +70,9 @@ export function buildWebSocketUrl(host: HostConfig): string {
     console.error('[useHostConnection] Invalid port for WebSocket URL:', host.port)
     throw new Error(`Invalid port: ${host.port}`)
   }
-  // Use ws:// for local networks, wss:// for public
-  const protocol = isLocalNetwork(host.host) ? 'ws' : 'wss'
+  // Use wss:// if server has TLS enabled, otherwise ws:// for local networks
+  // v3 servers always report secure flag; fallback to network-based for v2 compat
+  const protocol = host.secure ?? !isLocalNetwork(host.host) ? 'wss' : 'ws'
   return `${protocol}://${host.host}:${host.port}/ws?token=${encodeURIComponent(host.token)}`
 }
 
@@ -84,16 +85,23 @@ export function buildHttpUrl(host: HostConfig, path: string): string {
     console.error('[useHostConnection] Invalid port for HTTP URL:', host.port)
     throw new Error(`Invalid port: ${host.port}`)
   }
-  // Use http:// for local networks, https:// for public
-  const protocol = isLocalNetwork(host.host) ? 'http' : 'https'
+  // Use https:// if server has TLS enabled, otherwise http:// for local networks
+  // v3 servers always report secure flag; fallback to network-based for v2 compat
+  const protocol = host.secure ?? !isLocalNetwork(host.host) ? 'https' : 'http'
   return `${protocol}://${host.host}:${host.port}${path}`
 }
 
 /**
  * Verify handshake with server
- * Returns the server's fingerprint if successful
+ * Returns the server's fingerprint and TLS info if successful
  */
-export async function verifyHandshake(host: HostConfig, nonce: string): Promise<{ success: boolean; fingerprint?: string; error?: string }> {
+export async function verifyHandshake(host: HostConfig, nonce: string): Promise<{
+  success: boolean
+  fingerprint?: string
+  certFingerprint?: string
+  secure?: boolean
+  error?: string
+}> {
   try {
     const url = buildHttpUrl(host, '/verify-handshake')
     const response = await fetch(url, {
@@ -109,7 +117,12 @@ export async function verifyHandshake(host: HostConfig, nonce: string): Promise<
 
     const data = await response.json()
     if (data.valid && data.fingerprint) {
-      return { success: true, fingerprint: data.fingerprint }
+      return {
+        success: true,
+        fingerprint: data.fingerprint,
+        certFingerprint: data.certFingerprint,
+        secure: data.secure
+      }
     }
 
     return { success: false, error: 'Invalid handshake response' }

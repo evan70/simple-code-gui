@@ -392,7 +392,9 @@ export function useHostConnection(): UseHostConnectionReturn {
         name: `${options.host}:${options.port}`,
         host: options.host,
         port: options.port,
-        token: options.token
+        token: options.token,
+        secure: options.secure,
+        certFingerprint: options.certFingerprint
       }
     } else if (!host) {
       setError('Host not found')
@@ -430,6 +432,13 @@ export function useHostConnection(): UseHostConnectionReturn {
 
       if (result.success && result.fingerprint) {
         const serverFingerprint = result.fingerprint
+        const serverCertFingerprint = result.certFingerprint
+        const serverSecure = result.secure
+
+        // Update host with TLS info from server (v3 security)
+        if (serverCertFingerprint !== undefined || serverSecure !== undefined) {
+          host = { ...host, certFingerprint: serverCertFingerprint, secure: serverSecure }
+        }
 
         // Check fingerprint (TOFU - Trust On First Use)
         if (host.fingerprint) {
@@ -453,11 +462,11 @@ export function useHostConnection(): UseHostConnectionReturn {
             setConnectionState('error')
             return
           }
-          // Store the fingerprint for future connections
+          // Store the fingerprint and TLS info for future connections
           setHosts(prev =>
             prev.map(h =>
               h.id === hostId
-                ? { ...h, fingerprint: serverFingerprint, pendingNonce: undefined }
+                ? { ...h, fingerprint: serverFingerprint, certFingerprint: serverCertFingerprint, secure: serverSecure, pendingNonce: undefined }
                 : h
             )
           )
@@ -466,7 +475,7 @@ export function useHostConnection(): UseHostConnectionReturn {
           setHosts(prev =>
             prev.map(h =>
               h.id === hostId
-                ? { ...h, fingerprint: serverFingerprint, pendingNonce: undefined }
+                ? { ...h, fingerprint: serverFingerprint, certFingerprint: serverCertFingerprint, secure: serverSecure, pendingNonce: undefined }
                 : h
             )
           )

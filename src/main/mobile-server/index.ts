@@ -5,11 +5,15 @@
 
 import express, { Express, Request, Response } from 'express'
 import { WebSocketServer, WebSocket } from 'ws'
-import { createServer, Server } from 'http'
+import { createServer as createHttpServer, Server as HttpServer } from 'http'
+import { createServer as createHttpsServer, Server as HttpsServer } from 'https'
 import {
   getClientIp,
   getOrCreateFingerprint,
   getFormattedFingerprint,
+  getCertificateFingerprint,
+  getFormattedCertFingerprint,
+  getTlsOptions,
   createNonce,
   verifyNonce,
   startNonceCleanup,
@@ -54,7 +58,7 @@ import {
 
 export class MobileServer {
   private app: Express
-  private server: Server | null = null
+  private server: HttpServer | HttpsServer | null = null
   private wss: WebSocketServer | null = null
   private token: string
   private port: number
@@ -72,6 +76,8 @@ export class MobileServer {
 
   private rendererPath: string
   private rateLimitCleanupInterval: ReturnType<typeof setInterval> | null = null
+  private useTls: boolean = false // TODO: Enable once mobile app has cert pinning
+  private certFingerprint: string = ''
 
   constructor(config: MobileServerConfig = {}) {
     this.port = config.port || DEFAULT_PORT
@@ -116,7 +122,9 @@ export class MobileServer {
       res.json({
         port: this.port,
         ips,
-        fingerprint: getFormattedFingerprint()
+        fingerprint: getFormattedFingerprint(),
+        certFingerprint: this.certFingerprint,
+        secure: this.useTls
       })
     })
 
@@ -142,7 +150,9 @@ export class MobileServer {
 
       res.json({
         valid: true,
-        fingerprint: getOrCreateFingerprint()
+        fingerprint: getOrCreateFingerprint(),
+        certFingerprint: this.certFingerprint,
+        secure: this.useTls
       })
     })
 
@@ -233,6 +243,8 @@ export class MobileServer {
     ips: string[]
     fingerprint: string
     formattedFingerprint: string
+    certFingerprint: string
+    secure: boolean
     nonce: string
     nonceExpires: number
     qrData: string
@@ -245,18 +257,24 @@ export class MobileServer {
     const tailscaleHostname = getTailscaleHostname()
     const allHosts = tailscaleHostname ? [...ips, tailscaleHostname] : ips
 
+    // QR version 3: adds TLS certificate pinning
+    // - certFingerprint: SHA256 of server's TLS certificate (for pinning)
+    // - secure: true means use HTTPS/WSS
     const qrPayload = {
       type: 'claude-terminal',
-      version: 2,
+      version: 3,
       host: primaryIp,
       hosts: allHosts,
       port: this.port,
       token: this.token,
-      fingerprint,
+      fingerprint, // Legacy app-level fingerprint
+      certFingerprint: this.certFingerprint, // TLS certificate fingerprint for pinning
+      secure: this.useTls,
       nonce,
       nonceExpires: expiresAt
     }
 
+    const protocol = this.useTls ? 'https' : 'http'
     return {
       url: `claude-terminal://${primaryIp}:${this.port}?token=${this.token}`,
       token: this.token,
@@ -264,6 +282,8 @@ export class MobileServer {
       ips,
       fingerprint,
       formattedFingerprint: getFormattedFingerprint(),
+      certFingerprint: this.certFingerprint,
+      secure: this.useTls,
       nonce,
       nonceExpires: expiresAt,
       qrData: JSON.stringify(qrPayload)
@@ -292,25 +312,38 @@ export class MobileServer {
   }
 
   async start(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      try {
-        this.server = createServer(this.app)
-        this.setupWebSocket()
+    try {
+      // Get TLS certificate (generates on first run)
+      if (this.useTls) {
+        log('Initializing TLS certificate...')
+        const tlsOptions = await getTlsOptions()
+        this.certFingerprint = await getCertificateFingerprint()
+        this.server = createHttpsServer(tlsOptions, this.app)
+        log(`TLS enabled, cert fingerprint: ${this.certFingerprint.slice(0, 16)}...`)
+      } else {
+        this.server = createHttpServer(this.app)
+        log('TLS disabled, using HTTP')
+      }
 
-        startNonceCleanup()
+      this.setupWebSocket()
+      startNonceCleanup()
 
-        this.rateLimitCleanupInterval = setInterval(() => {
-          cleanupEndpointRateLimits()
-        }, 2 * 60 * 1000)
+      this.rateLimitCleanupInterval = setInterval(() => {
+        cleanupEndpointRateLimits()
+      }, 2 * 60 * 1000)
 
-        this.server.listen(this.port, '0.0.0.0', () => {
-          log(`Started on port ${this.port}`)
+      return new Promise((resolve, reject) => {
+        this.server!.listen(this.port, '0.0.0.0', () => {
+          const protocol = this.useTls ? 'HTTPS' : 'HTTP'
+          log(`Started ${protocol} server on port ${this.port}`)
           log(`Token: ${this.token.slice(0, 8)}...`)
-          log(`Fingerprint: ${getFormattedFingerprint()}`)
+          if (this.useTls) {
+            log(`Cert fingerprint: ${this.certFingerprint.slice(0, 32)}...`)
+          }
           resolve()
         })
 
-        this.server.on('error', (err: NodeJS.ErrnoException) => {
+        this.server!.on('error', (err: NodeJS.ErrnoException) => {
           if (err.code === 'EADDRINUSE') {
             log(`Port ${this.port} in use, trying ${this.port + 1}`)
             this.port++
@@ -321,10 +354,11 @@ export class MobileServer {
             reject(err)
           }
         })
-      } catch (error) {
-        reject(error)
-      }
-    })
+      })
+    } catch (error) {
+      log('Failed to start server', { error: String(error) })
+      throw error
+    }
   }
 
   stop(): void {
