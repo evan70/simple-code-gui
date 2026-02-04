@@ -74,13 +74,13 @@ Stop juggling terminal tabs. Simple Code GUI lets you run AI coding assistants o
 
 ### Windows / macOS / Linux
 
-Download from [GitHub Releases](https://github.com/DonutsDelivery/simple-code-gui/releases):
-
 | Platform | Download |
 |----------|----------|
-| Windows | `.exe` installer or portable |
-| macOS (untested)| `.dmg` (Apple Silicon) |
-| Linux | `.AppImage` or `.deb` |
+| Windows | [Installer (.exe)](https://github.com/DonutsDelivery/simple-code-gui/releases/download/v1.3.50/Simple-Code-GUI-Setup-1.3.50.exe) \| [Portable (.exe)](https://github.com/DonutsDelivery/simple-code-gui/releases/download/v1.3.50/Simple-Code-GUI-Portable-1.3.50.exe) |
+| macOS (untested) | [Apple Silicon (.dmg)](https://github.com/DonutsDelivery/simple-code-gui/releases/download/v1.3.50/Simple-Code-GUI-1.3.50-arm64.dmg) |
+| Linux | [AppImage](https://github.com/DonutsDelivery/simple-code-gui/releases/download/v1.3.50/Simple-Code-GUI-1.3.50.AppImage) \| [.deb](https://github.com/DonutsDelivery/simple-code-gui/releases/download/v1.3.50/Simple-Code-GUI-1.3.50.deb) \| [.rpm](https://github.com/DonutsDelivery/simple-code-gui/releases/download/v1.3.50/Simple-Code-GUI-1.3.50.rpm) |
+
+[All releases](https://github.com/DonutsDelivery/simple-code-gui/releases)
 
 If you download Simple Code GUI on macOS and get a message like:
 	•	“Simple Code GUI.app is damaged and can’t be opened”
