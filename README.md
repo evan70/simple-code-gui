@@ -17,6 +17,26 @@ Stop juggling terminal tabs. Simple Code GUI lets you run AI coding assistants o
 
 ![Main Interface - Tiled View](https://donutsdelivery.online/assets/mockups/thumbs/simplecodegui-mockup-1.svg)
 
+## Download
+
+| Platform | Download |
+|----------|----------|
+| Windows | [Installer (.exe)](https://github.com/DonutsDelivery/simple-code-gui/releases/download/v1.3.50/Simple-Code-GUI-Setup-1.3.50.exe) \| [Portable (.exe)](https://github.com/DonutsDelivery/simple-code-gui/releases/download/v1.3.50/Simple-Code-GUI-Portable-1.3.50.exe) |
+| macOS (untested) | [Apple Silicon (.dmg)](https://github.com/DonutsDelivery/simple-code-gui/releases/download/v1.3.50/Simple-Code-GUI-1.3.50-arm64.dmg) |
+| Linux | [AppImage](https://github.com/DonutsDelivery/simple-code-gui/releases/download/v1.3.50/Simple-Code-GUI-1.3.50.AppImage) \| [.deb](https://github.com/DonutsDelivery/simple-code-gui/releases/download/v1.3.50/Simple-Code-GUI-1.3.50.deb) \| [.rpm](https://github.com/DonutsDelivery/simple-code-gui/releases/download/v1.3.50/Simple-Code-GUI-1.3.50.rpm) |
+| Arch Linux | `yay -S simple-code-gui` |
+
+[All releases](https://github.com/DonutsDelivery/simple-code-gui/releases)
+
+<details>
+<summary>macOS: "App is damaged" error fix</summary>
+
+This is macOS Gatekeeper blocking unsigned apps. Run:
+```bash
+sudo xattr -dr com.apple.quarantine "/Applications/Simple Code GUI.app"
+```
+</details>
+
 ## Features
 
 ### Multi-Backend Support
@@ -70,38 +90,7 @@ Stop juggling terminal tabs. Simple Code GUI lets you run AI coding assistants o
 - **Auto Updates** - Downloads and installs updates automatically
 - **Cross-Platform** - Windows, macOS (Apple Silicon), and Linux
 
-## Installation
-
-### Windows / macOS / Linux
-
-| Platform | Download |
-|----------|----------|
-| Windows | [Installer (.exe)](https://github.com/DonutsDelivery/simple-code-gui/releases/download/v1.3.50/Simple-Code-GUI-Setup-1.3.50.exe) \| [Portable (.exe)](https://github.com/DonutsDelivery/simple-code-gui/releases/download/v1.3.50/Simple-Code-GUI-Portable-1.3.50.exe) |
-| macOS (untested) | [Apple Silicon (.dmg)](https://github.com/DonutsDelivery/simple-code-gui/releases/download/v1.3.50/Simple-Code-GUI-1.3.50-arm64.dmg) |
-| Linux | [AppImage](https://github.com/DonutsDelivery/simple-code-gui/releases/download/v1.3.50/Simple-Code-GUI-1.3.50.AppImage) \| [.deb](https://github.com/DonutsDelivery/simple-code-gui/releases/download/v1.3.50/Simple-Code-GUI-1.3.50.deb) \| [.rpm](https://github.com/DonutsDelivery/simple-code-gui/releases/download/v1.3.50/Simple-Code-GUI-1.3.50.rpm) |
-
-[All releases](https://github.com/DonutsDelivery/simple-code-gui/releases)
-
-If you download Simple Code GUI on macOS and get a message like:
-	•	“Simple Code GUI.app is damaged and can’t be opened”
-	•	“…can’t be opened because it is damaged”
-
-…it’s usually not actually corrupted. This is macOS Gatekeeper reacting to a quarantined download (common when downloaded via Safari) plus an app that’s not notarized / not Developer ID signed (many Electron apps built locally are “ad-hoc signed”).
-
-Why it happens
-
-macOS attaches a com.apple.quarantine attribute to apps downloaded from the internet. When Gatekeeper evaluates a quarantined app that isn’t notarized (or is ad-hoc signed), the user sometimes gets the misleading “damaged” dialog instead of a clearer “unidentified developer” warning.
-Fix: Remove the quarantine attribute and reopen the app:
-sudo xattr -dr com.apple.quarantine "/Applications/Simple Code GUI.app"
-open "/Applications/Simple Code GUI.app"
-
-### Arch Linux (AUR)
-
-```bash
-yay -S simple-code-gui
-```
-
-### From Source
+## Building from Source
 
 ```bash
 git clone https://github.com/DonutsDelivery/simple-code-gui.git
