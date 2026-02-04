@@ -42,8 +42,6 @@ Stop juggling terminal tabs. Simple Code GUI lets you run AI coding assistants o
 - **Per-Project Settings** - Override global settings per project (backend, permissions, voice)
 - **Run Executable** - Launch your app directly from the sidebar
 
-![Per-Project Settings](assets/per-project%20settings.png)
-
 ### Voice Features
 - **Speech-to-Text** - Whisper models for voice input (tiny to large)
 - **Text-to-Speech** - Piper voices and XTTS voice clones for spoken responses
@@ -73,8 +71,6 @@ Stop juggling terminal tabs. Simple Code GUI lets you run AI coding assistants o
 - **Create Tasks** - Add tasks with title, description, and priority
 - **Track Progress** - Start, complete, and delete tasks
 - **Auto-Refresh** - Task list updates automatically
-
-![Beads Task Panel & TTS Controls](assets/beads%20and%20tts%20settings.png)
 
 ### Setup & Updates
 - **Auto-Install Dependencies** - Installs Claude Code, Node.js, Git if missing
