@@ -3,6 +3,7 @@
 </p>
 
 <p align="center">
+  <a href="https://donutsdelivery.online/#simplecodegui"><img src="https://img.shields.io/badge/Website-donutsdelivery.online-blue?logo=googlechrome&logoColor=white" alt="Website"></a>
   <a href="https://discord.gg/ZhvPhXrdZ4"><img src="https://img.shields.io/badge/Discord-Join%20Server-5865F2?logo=discord&logoColor=white" alt="Discord"></a>
   <img src="https://img.shields.io/github/v/release/DonutsDelivery/simple-code-gui" alt="GitHub Release">
   <img src="https://img.shields.io/github/downloads/DonutsDelivery/simple-code-gui/total" alt="Downloads">
@@ -14,7 +15,7 @@ A desktop GUI for managing multiple AI coding assistant sessions across differen
 
 Stop juggling terminal tabs. Simple Code GUI lets you run AI coding assistants on multiple projects simultaneously, instantly resume past conversations, and switch between sessions with a click. Features voice input/output, image pasting, task tracking with Beads integration, and 9 color themes.
 
-![Main Interface - Tiled View](assets/main.png)
+![Main Interface - Tiled View](https://donutsdelivery.online/assets/mockups/thumbs/simplecodegui-mockup-1.svg)
 
 ## Features
 
