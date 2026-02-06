@@ -11,7 +11,7 @@ export interface OpenTab {
   projectPath: string
   sessionId?: string
   title: string
-  backend?: 'default' | 'claude' | 'gemini' | 'codex' | 'opencode' | 'aider'
+  backend?: string
 }
 
 export type DropZoneType =
